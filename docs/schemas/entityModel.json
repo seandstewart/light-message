@@ -1,0 +1,87 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lightos.dev/schemas/room-entities",
+  "title": "RoomEntities",
+  "definitions": {
+    "AppleAccount": {
+      "type": "object",
+      "required": ["apple_id", "auth_state", "activation_status"],
+      "properties": {
+        "apple_id": { "type": "string", "format": "email" },
+        "auth_state": {
+          "type": "string",
+          "enum": [
+            "Idle",
+            "CredentialsRequired",
+            "CredentialsSubmitted",
+            "TwoFactorRequired",
+            "TwoFactorSubmitted",
+            "ActivationInProgress",
+            "Activated",
+            "Deactivated",
+            "AuthenticationFailed"
+          ]
+        },
+        "activation_status": {
+          "type": "string",
+          "enum": ["PENDING", "2FA_REQUIRED", "SUCCESS", "FAILED"]
+        },
+        "session_token": { "type": "string" },
+        "refresh_token": { "type": "string" },
+        "expires_at": { "type": "string", "format": "date-time" },
+        "push_token": { "type": "string" }
+      }
+    },
+    "Thread": {
+      "type": "object",
+      "required": ["thread_id", "participant_uris", "last_message_timestamp"],
+      "properties": {
+        "thread_id": { "type": "string", "minLength": 1 },
+        "participant_uris": {
+          "type": "array",
+          "items": { "type": "string", "format": "uri" }
+        },
+        "snippet": { "type": "string" },
+        "last_message_timestamp": { "type": "string", "format": "date-time" },
+        "is_muted": { "type": "boolean", "default": false }
+      }
+    },
+    "Message": {
+      "type": "object",
+      "required": [
+        "message_id",
+        "thread_id",
+        "sender_uri",
+        "status",
+        "timestamp"
+      ],
+      "properties": {
+        "message_id": { "type": "string", "format": "uuid" },
+        "thread_id": { "type": "string" },
+        "sender_uri": { "type": "string", "format": "uri" },
+        "text": { "type": "string", "maxLength": 5000 },
+        "status": {
+          "type": "string",
+          "enum": ["DRAFT", "SUBMITTED", "SENT", "DELIVERED", "READ"]
+        },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "correlation_id": { "type": "string", "format": "uuid" }
+      }
+    },
+    "Attachment": {
+      "type": "object",
+      "required": ["attachment_id", "message_id", "url", "size", "mime_type"],
+      "properties": {
+        "attachment_id": { "type": "string", "format": "uuid" },
+        "message_id": { "type": "string", "format": "uuid" },
+        "url": { "type": "string", "format": "uri" },
+        "local_path": { "type": "string" },
+        "mime_type": { "type": "string" },
+        "size": { "type": "integer", "minimum": 0 },
+        "checksum": { "type": "string" },
+        "encryption_key": { "type": "string", "contentEncoding": "base64" },
+        "iv": { "type": "string", "contentEncoding": "base64" }
+      }
+    }
+  }
+}

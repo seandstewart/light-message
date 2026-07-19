@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lightos.dev/schemas/attachment-ref",
+  "title": "AttachmentRef",
+  "type": "object",
+  "required": ["url", "size", "mime_type"],
+  "description": "Attachment reference provided by rustpush after decryption. If encryption_key/iv/auth_tag are absent, attachment is unencrypted. If present, Kotlin must decrypt using AES-256-GCM and verify checksum.",
+  "properties": {
+    "url": {
+      "type": "string",
+      "format": "uri",
+      "description": "iCloud CDN or relay-proxied HTTPS URL"
+    },
+    "encryption_key": {
+      "type": "string",
+      "contentEncoding": "base64",
+      "minLength": 44,
+      "maxLength": 44,
+      "description": "32-byte AES-256-GCM key, Base64-encoded (required if encrypted; absent if not)"
+    },
+    "iv": {
+      "type": "string",
+      "contentEncoding": "base64",
+      "minLength": 16,
+      "maxLength": 16,
+      "description": "12-byte AES-GCM nonce, Base64-encoded (required if encrypted; absent if not)"
+    },
+    "auth_tag": {
+      "type": "string",
+      "contentEncoding": "base64",
+      "minLength": 24,
+      "maxLength": 24,
+      "description": "16-byte GCM authentication tag, Base64-encoded (required if encrypted; absent if not)"
+    },
+    "size": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Decrypted file size in bytes"
+    },
+    "mime_type": {
+      "type": "string",
+      "description": "MIME type of decrypted attachment"
+    },
+    "file_name": {
+      "type": "string",
+      "description": "Original filename"
+    },
+    "checksum": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA-256 hex digest of decrypted plaintext (optional; if present, Kotlin must verify before rendering; if absent, skip verification)"
+    }
+  }
+}

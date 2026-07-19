@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lightos.dev/schemas/encrypted-envelope",
+  "title": "EncryptedEnvelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "c", "i", "t", "k", "s"],
+  "properties": {
+    "v": { "type": "integer", "const": 1, "description": "Envelope version; only version 1 currently supported" },
+    "c": {
+      "type": "string",
+      "contentEncoding": "base64",
+      "description": "AES-256-GCM ciphertext of inner bplist (variable length)"
+    },
+    "i": {
+      "type": "string",
+      "contentEncoding": "base64",
+      "minLength": 16,
+      "maxLength": 16,
+      "description": "12-byte IV, Base64-encoded (16 chars)"
+    },
+    "t": {
+      "type": "string",
+      "contentEncoding": "base64",
+      "minLength": 24,
+      "maxLength": 24,
+      "description": "16-byte GCM authentication tag, Base64-encoded (24 chars)"
+    },
+    "k": {
+      "type": "string",
+      "contentEncoding": "base64",
+      "minLength": 172,
+      "maxLength": 172,
+      "description": "128-byte RSA-2048-OAEP wrapped AES key, Base64-encoded (172 chars)"
+    },
+    "s": {
+      "type": "string",
+      "contentEncoding": "base64",
+      "minLength": 88,
+      "maxLength": 88,
+      "description": "64-byte ECDSA P-256 signature over k||c, Base64-encoded (88 chars). Verify before decryption."
+    }
+  }
+}

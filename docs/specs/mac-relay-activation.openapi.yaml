@@ -1,0 +1,182 @@
+openapi: '3.2.0'
+info:
+  title: LightOS Mac Relay One-Time Activation API
+  version: '1.0.0'
+  description: |
+    One-time hardware attestation endpoint. Invoked by rustpush during initial
+    Apple ID activation. Not used for runtime messaging.
+
+servers:
+  - url: 'https://{relayHost}/api/v1'
+    variables:
+      relayHost:
+        default: 'relay.local'
+
+tags:
+  - name: Activation
+    description: One-time hardware info and activation blob exchange
+
+paths:
+  /activate:
+    post:
+      tags:
+        - Activation
+      summary: Submit hardware identifiers for Apple attestation
+      operationId: submitHardwareInfo
+      description: |
+        One-time activation POST. Client must retry on failure (500, timeout, network error) per design.md §2.5 L215.
+        
+        **Retry Policy (per proposal.md Phase 4 + design.md §2.5):**
+        - Max 3 attempts
+        - Exponential backoff: 1s, 2s, 4s
+        - If all retries exhaust, emit `AuthenticationFailed` event with reason `RELAY_UNAVAILABLE`
+        - Fallback: HTTP long-polling via relay if APNs unavailable (proposal.md Risk Register)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HardwareInfoRequest'
+      responses:
+        '200':
+          description: Activation successful; activation blob returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActivationBlobResponse'
+        '202':
+          description: Activation pending (2FA or Apple processing)
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - activation_id
+                  - status
+                properties:
+                  activation_id:
+                    type: string
+                    format: uuid
+                  status:
+                    type: string
+                    enum:
+                      - PENDING_2FA
+                      - PENDING_ACTIVATION
+                  expires_at:
+                    type: string
+                    format: date-time
+        '401':
+          description: Invalid Apple ID credentials or hardware info rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '5XX':
+          description: Server error; client must retry with exponential backoff (1s, 2s, 4s)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        'default':
+          description: Network timeout or connection error; client must retry per design.md §2.5 L215
+
+  /health:
+    get:
+      tags:
+        - Activation
+      summary: Relay availability check
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Relay is online
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - ok
+                  relay_version:
+                    type: string
+
+components:
+  schemas:
+    HardwareInfoRequest:
+      type: object
+      required:
+        - apple_id
+        - password
+        - hardware_info
+      properties:
+        apple_id:
+          type: string
+          description: Apple ID (email or phone number per design.md §3.3 L245)
+        password:
+          type: string
+          format: password
+          description: Apple ID password
+        hardware_info:
+          type: object
+          required:
+            - serial_number
+            - board_id
+            - model_code
+            - udid
+          properties:
+            serial_number:
+              type: string
+              pattern: '^[A-Z0-9]{12}$'
+              description: 12-character Apple device serial number (per design.md §2.5 L219 hardware info)
+            board_id:
+              type: string
+              description: Apple board identifier (e.g., J71AP)
+            model_code:
+              type: string
+              description: Hardware model code (e.g., iPhone8,1)
+            udid:
+              type: string
+              description: Unique device identifier (40-character hex)
+            imei:
+              type: string
+              description: Optional IMEI for cellular devices
+
+    ActivationBlobResponse:
+      type: object
+      required:
+        - activation_blob
+        - profile_id
+        - handles
+        - expires_at
+      properties:
+        activation_blob:
+          type: string
+          format: base64
+          description: Opaque activation certificate blob consumed by rustpush
+        profile_id:
+          type: string
+          description: Apple ID profile identifier
+        handles:
+          type: array
+          items:
+            type: string
+            format: uri
+          description: 'Registered iMessage handles (tel: or mailto:)'
+        expires_at:
+          type: string
+          format: date-time
+          description: Activation expiration timestamp
+
+    Error:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+        message:
+          type: string

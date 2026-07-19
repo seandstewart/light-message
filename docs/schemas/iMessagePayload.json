@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lightos.dev/schemas/imessage-payload",
+  "title": "iMessagePayload",
+  "type": "object",
+  "required": ["guid", "participants", "timestamp"],
+  "properties": {
+    "guid": { "type": "string", "format": "uuid", "description": "Message UUID (immutable)" },
+    "text": { "type": "string", "description": "Message body" },
+    "subject": { "type": "string", "description": "Optional subject (iMessage app feature)" },
+    "participants": {
+      "type": "array",
+      "items": { "type": "string", "format": "uri" },
+      "minItems": 1,
+      "description": "All participants in conversation (including sender)"
+    },
+    "sender": { "type": "string", "format": "uri", "description": "Sender URI (tel: or mailto:)" },
+    "balloon": { "type": "string", "description": "iMessage app bundle ID (if rendered by special app)" },
+    "timestamp": { "type": "string", "format": "date-time", "description": "ISO 8601 format (converted from Apple epoch by rustpush)" },
+    "attachments": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/AttachmentRef" },
+      "description": "Attachment references (mutually exclusive with readReceipt/typingIndicator)"
+    },
+    "readReceipt": { "type": "boolean", "description": "True if this message is a read receipt signal (text and attachments should be absent)" },
+    "typingIndicator": { "type": "boolean", "description": "True if this message is a typing indicator signal (text and attachments should be absent)" }
+  },
+  "definitions": {
+    "AttachmentRef": {
+      "type": "object",
+      "required": ["url", "size", "mime_type"],
+      "properties": {
+        "url": { "type": "string", "format": "uri", "description": "iCloud CDN or relay-proxied HTTPS URL" },
+        "encryption_key": { "type": "string", "contentEncoding": "base64", "minLength": 44, "maxLength": 44, "description": "32-byte AES-256 key, Base64-encoded" },
+        "iv": { "type": "string", "contentEncoding": "base64", "minLength": 16, "maxLength": 16, "description": "12-byte AES-GCM nonce, Base64-encoded" },
+        "auth_tag": { "type": "string", "contentEncoding": "base64", "minLength": 24, "maxLength": 24, "description": "16-byte GCM authentication tag, Base64-encoded" },
+        "size": { "type": "integer", "minimum": 0, "description": "Decrypted file size in bytes" },
+        "mime_type": { "type": "string", "description": "MIME type of decrypted attachment" },
+        "file_name": { "type": "string", "description": "Original filename" },
+        "checksum": { "type": "string", "pattern": "^[a-f0-9]{64}$", "description": "SHA-256 hex digest of decrypted plaintext" }
+      }
+    }
+  }
+}

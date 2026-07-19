@@ -1,0 +1,93 @@
+asyncapi: "3.1.0"
+info:
+  title: rustpush UnifiedPush Bridge
+  version: "1.0.0"
+  description: |
+    UnifiedPush contract from rustpush APNs bridge to local distributor,
+    consumed by the LightOS Kotlin app.
+
+defaultContentType: application/json
+
+channels:
+  unifiedPush:
+    address: "https://{distributorEndpoint}/"
+    messages:
+      pushNotification:
+        name: PushNotification
+        contentType: application/json
+        payload:
+          type: object
+          required:
+            - type
+            - timestamp
+            - data
+            - correlation_id
+            - message_id
+            - sender
+            - recipients
+          properties:
+            type:
+              type: string
+              enum:
+                - WAKE
+                - MESSAGE_DELIVERY
+                - READ_RECEIPT
+                - TYPING
+              description: Push notification type (WAKE for sync trigger, MESSAGE_DELIVERY for incoming message, READ_RECEIPT for read status, TYPING for typing indicator)
+            correlation_id:
+              type: string
+              format: uuid
+              description: Unique correlation ID for IPC request-response matching (per design.md §2.2)
+            message_id:
+              type: string
+              format: uuid
+              description: Unique message identifier (UUIDv4, immutable)
+            sender:
+              type: string
+              format: uri
+              description: 'Sender URI (tel: or mailto: format, per design.md §2.2 L102)'
+            recipients:
+              type: array
+              items:
+                type: string
+                format: uri
+              minItems: 1
+              description: All participants in conversation (including sender, per design.md §2.2 L103)
+            data:
+              type: string
+              format: base64
+              description: Opaque APNs payload decoded by rustpush (plaintext or encrypted per message type)
+            timestamp:
+              type: string
+              format: date-time
+              description: ISO 8601 timestamp (rustpush converts from Apple epoch, per design.md §8.2 L488)
+
+operations:
+  receivePush:
+    title: Receive APNs Proxy via UnifiedPush
+    action: receive
+    channel:
+      $ref: "#/channels/unifiedPush"
+    messages:
+      - $ref: "#/channels/unifiedPush/messages/pushNotification"
+    bindings:
+      http:
+        bindingVersion: "0.2.0"
+    description: |
+      LightOS Kotlin app receives push notifications via org.unifiedpush.android:connector.
+
+      **Push Types (per design.md §2.4 L205):**
+      - WAKE: Trigger full sync via REQUEST_SYNC IPC command
+      - MESSAGE_DELIVERY: Incoming iMessage; decode plaintext payload via MessageCodec
+      - READ_RECEIPT: Status update; parse sender + status (READ/DELIVERED)
+      - TYPING: Typing indicator; parse sender + boolean flag
+
+      **Payload Encoding (per design.md §8):**
+      - Inner plaintext: iMessagePayload (text, attachments, sender, timestamp, participants)
+      - Outer encrypted: AES-256-GCM envelope with RSA-wrapped key, ECDSA signature
+      - rustpush decrypts and provides plaintext via IPC; Kotlin app verifies checksum post-decryption
+
+components:
+  messages:
+    pushNotification:
+      $ref: "#/channels/unifiedPush/messages/pushNotification"

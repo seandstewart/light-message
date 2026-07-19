@@ -1,0 +1,189 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://lightos.dev/schemas/ipc-message",
+  "title": "IPCMessage",
+  "type": "object",
+  "required": ["correlation_id", "msg_type"],
+  "properties": {
+    "correlation_id": { "type": "string", "format": "uuid", "description": "Unique per command/response pair for request-response correlation" },
+    "msg_type": {
+      "type": "string",
+      "enum": [
+        "SEND_MESSAGE",
+        "SEND_READ_RECEIPT",
+        "SEND_TYPING",
+        "REQUEST_SYNC",
+        "ACTIVATE",
+        "PING",
+        "MESSAGE_RECEIVED",
+        "DELIVERY_RECEIPT",
+        "ACTIVATION_STATUS",
+        "PONG",
+        "ERROR"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "msg_type": { "const": "SEND_MESSAGE" } } },
+      "then": {
+        "properties": {
+          "message_id": { "type": "string", "format": "uuid" },
+          "recipients": {
+            "type": "array",
+            "items": { "type": "string", "format": "uri" },
+            "minItems": 1,
+            "description": "At least one recipient required"
+          },
+          "text": { "type": "string", "maxLength": 5000 },
+          "attachments": {
+            "type": "array",
+            "items": { "$ref": "#/definitions/AttachmentMeta" }
+          }
+        },
+        "required": ["message_id", "recipients"],
+        "oneOf": [
+          { "required": ["text"] },
+          { "required": ["attachments"] }
+        ]
+      }
+    },
+    {
+      "if": { "properties": { "msg_type": { "const": "SEND_READ_RECEIPT" } } },
+      "then": {
+        "properties": {
+          "message_id": { "type": "string", "format": "uuid" },
+          "thread_id": { "type": "string" }
+        },
+        "required": ["message_id", "thread_id"]
+      }
+    },
+    {
+      "if": { "properties": { "msg_type": { "const": "SEND_TYPING" } } },
+      "then": {
+        "properties": {
+          "thread_id": { "type": "string" },
+          "typing": { "type": "boolean" }
+        },
+        "required": ["thread_id", "typing"]
+      }
+    },
+    {
+      "if": { "properties": { "msg_type": { "const": "REQUEST_SYNC" } } },
+      "then": {
+        "properties": {
+          "since_token": { "type": "string", "description": "If absent, sync all messages. Otherwise sync messages since this token (persisted by Kotlin after last successful sync)." }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "msg_type": { "const": "ACTIVATE" } } },
+      "then": {
+        "properties": {
+          "apple_id": { "type": "string", "description": "Apple ID (email or phone number)" },
+          "password": { "type": "string" },
+          "two_fa_code": { "type": "string" }
+        },
+        "required": ["apple_id", "password"]
+      }
+    },
+    {
+      "if": { "properties": { "msg_type": { "const": "PING" } } },
+      "then": { "properties": {} }
+    },
+    {
+      "if": { "properties": { "msg_type": { "const": "MESSAGE_RECEIVED" } } },
+      "then": {
+        "properties": {
+          "message_id": { "type": "string", "format": "uuid" },
+          "sender": { "type": "string", "format": "uri" },
+          "recipients": {
+            "type": "array",
+            "items": { "type": "string", "format": "uri" },
+            "minItems": 1
+          },
+          "text": { "type": "string" },
+          "attachments": {
+            "type": "array",
+            "items": { "$ref": "#/definitions/AttachmentRef" }
+          },
+          "timestamp": { "type": "string", "format": "date-time", "description": "ISO 8601 format (rustpush converts from Apple epoch)" }
+        },
+        "required": ["message_id", "sender", "recipients", "timestamp"],
+        "oneOf": [
+          { "required": ["text"] },
+          { "required": ["attachments"] }
+        ]
+      }
+    },
+    {
+      "if": { "properties": { "msg_type": { "const": "DELIVERY_RECEIPT" } } },
+      "then": {
+        "properties": {
+          "message_id": { "type": "string", "format": "uuid" },
+          "status": { "type": "string", "enum": ["SENT", "DELIVERED", "READ"], "description": "Message delivery status as reported by rustpush" }
+        },
+        "required": ["message_id", "status"]
+      }
+    },
+    {
+      "if": { "properties": { "msg_type": { "const": "ACTIVATION_STATUS" } } },
+      "then": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["PENDING", "2FA_REQUIRED", "SUCCESS", "FAILED"]
+          },
+          "error": { "type": "string" },
+          "handles": {
+            "type": "array",
+            "items": { "type": "string", "format": "uri" }
+          }
+        },
+        "required": ["status"]
+      }
+    },
+    {
+      "if": { "properties": { "msg_type": { "const": "PONG" } } },
+      "then": { "properties": {} }
+    },
+    {
+      "if": { "properties": { "msg_type": { "const": "ERROR" } } },
+      "then": {
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "context": { "type": "object" }
+        },
+        "required": ["code", "message"]
+      }
+    }
+  ],
+  "definitions": {
+    "AttachmentMeta": {
+      "type": "object",
+      "properties": {
+        "local_uri": { "type": "string", "description": "Path to local file on Android device" },
+        "mime_type": { "type": "string", "description": "MIME type of local file" },
+        "file_name": { "type": "string", "description": "Filename to send with attachment" },
+        "size": { "type": "integer", "description": "File size in bytes" }
+      },
+      "description": "Metadata for attachment to be sent by rustpush. All fields optional; rustpush infers from local_uri if absent."
+    },
+    "AttachmentRef": {
+      "type": "object",
+      "required": ["url", "size", "mime_type"],
+      "properties": {
+        "url": { "type": "string", "format": "uri", "description": "iCloud CDN or relay-proxied HTTPS URL" },
+        "encryption_key": { "type": "string", "contentEncoding": "base64", "minLength": 44, "maxLength": 44, "description": "32-byte AES-256 key, Base64-encoded (required if attachment is encrypted)" },
+        "iv": { "type": "string", "contentEncoding": "base64", "minLength": 16, "maxLength": 16, "description": "12-byte AES-GCM nonce, Base64-encoded (required if attachment is encrypted)" },
+        "auth_tag": { "type": "string", "contentEncoding": "base64", "minLength": 24, "maxLength": 24, "description": "16-byte GCM auth tag, Base64-encoded (required if attachment is encrypted)" },
+        "size": { "type": "integer", "minimum": 0, "description": "Decrypted file size in bytes" },
+        "mime_type": { "type": "string", "description": "MIME type of decrypted attachment" },
+        "file_name": { "type": "string", "description": "Original filename" },
+        "checksum": { "type": "string", "pattern": "^[a-f0-9]{64}$", "description": "SHA-256 hex digest of decrypted plaintext (optional; if present, Kotlin must verify before rendering)" }
+      },
+      "description": "Reference to attachment provided by rustpush after decryption. If encryption_key/iv/auth_tag are present, attachment was encrypted; Kotlin must decrypt using these values."
+    }
+  }
+}
