@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.LightMessage" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:colorPrimary">@android:color/black</item>
+        <item name="android:colorBackground">@android:color/white</item>
+    </style>
+</resources>

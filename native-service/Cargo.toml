@@ -1,0 +1,20 @@
+[package]
+name = "rustpush-service"
+version = "0.1.0"
+edition = "2021"
+description = "Standalone rustpush IPC service for the LightOS iMessage client (Milestone 3)"
+
+[[bin]]
+name = "rustpush-service"
+path = "src/main.rs"
+
+[dependencies]
+# The Apple push core. Android has no local anisette provider and the
+# macos-validation-data path is macOS-only, so we build against the remote
+# anisette provider (mirrors mise.toml build:rust feature selection).
+rustpush = { path = "../rustpush", default-features = false, features = ["remote-anisette-v3"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Used to bind an abstract-namespace AF_UNIX socket portably across Linux and
+# Android (std::os::linux::net is not exposed on target_os = "android").
+libc = "0.2"

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <!-- Encrypted secrets exempted from extraction -->
+    <domain-config>
+        <domain name="sharedpref">
+            <path name="encrypted_tokens" requireDeviceUnlock="true" />
+        </domain>
+        <domain name="file">
+            <path name="databases/messages.db" requireDeviceUnlock="true" />
+        </domain>
+    </domain-config>
+</data-extraction-rules>

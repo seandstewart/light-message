@@ -33,3 +33,9 @@ Document **decisions**, not implementation details.
 - **[.agents/rules/projects.md](./agents/rules/projects.md)** — Project folder structure, proposal sections, cross-linking
 
 Refer to these when creating or updating architecture docs.
+
+## Tools
+
+- Use `mise exec -- ...` to execute shell commands.
+- Use `mise run ...` to run tasks
+- Tasks are defined in [mise.toml](./mise.toml)

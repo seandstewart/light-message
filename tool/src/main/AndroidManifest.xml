@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Core permissions -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Push notification support -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Attachment storage -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+
+    <!-- rustpush native service -->
+    <uses-permission android:name="android.permission.BIND_JOB_SERVICE" />
+
+    <application
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:label="@string/app_name"
+        android:supportsRtl="false"
+        android:theme="@style/Theme.LightMessage"
+        android:usesCleartextTraffic="false">
+
+        <!-- Main activity -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.LightMessage"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Push receiver for UnifiedPush -->
+        <receiver
+            android:name=".push.PushReceiver"
+            android:exported="true"
+            android:permission="org.unifiedpush.android.distributor.SEND_PUSH">
+            <intent-filter>
+                <action android:name="org.unifiedpush.android.distributor.RECEIVE_PUSH" />
+                <action android:name="org.unifiedpush.android.distributor.REGISTRATION_RESULT" />
+            </intent-filter>
+        </receiver>
+
+        <!-- rustpush native service (IPC via Unix socket) -->
+        <service
+            android:name=".ipc.RustpushService"
+            android:enabled="true"
+            android:exported="false" />
+
+    </application>
+
+</manifest>

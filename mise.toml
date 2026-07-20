@@ -1,0 +1,188 @@
+# mise dev environment for light-message
+# https://mise.jdx.dev
+#
+# First-time setup:
+#   1. Install mise: https://mise.jdx.dev/getting-started.html
+#   2. mise install          # provisions Java, Rust, Gradle, Android SDK
+#   3. mise run submodule    # init rustpush git submodule
+#   4. mise run setup        # install SDK components + Rust target + cargo-ndk
+#   5. mise run local-properties  # generate local.properties for GitHub Packages
+
+# ── Tools ─────────────────────────────────────────────────────────────────────
+[tools]
+# AGP 8.9.x + Gradle 8.11.1+ require Java 17+
+java = "temurin-17"
+# rustpush cross-compilation to arm64-v8a
+# profile = "default" avoids rls-preview, which was removed from stable
+rust = { version = "stable", profile = "default" }
+# AGP 8.9.x requires Gradle 8.11.1+
+gradle = "8.11.1"
+# Android cmdline-tools (provides sdkmanager, avdmanager, adb via platform-tools)
+android-sdk = "22.0"
+# protoc required by rustpush (cloudkit-proto build script uses prost-build)
+protoc = "latest"
+
+# ── Environment ───────────────────────────────────────────────────────────────
+[env]
+# ANDROID_HOME and ANDROID_SDK_ROOT are set automatically by the android-sdk
+# tool above.
+# ANDROID_NDK_ROOT is set inside tasks (tool env vars are not available to [env]
+# templates).
+
+# NDK version used by cargo-ndk for the rustpush cross-compile.
+ANDROID_SDK_VERSION = "22.0"
+ANDROID_NDK_VERSION = "25.2.9519653"
+CARGO_NDK_VERSION = "3.5.4"
+ANDROID_HOME = "{{ env.HOME }}/.local/share/mise/installs/android-sdk/{{ env.ANDROID_SDK_VERSION }}"
+ANDROID_NDK_ROOT = "{{ env.ANDROID_HOME }}/ndk/{{ env.ANDROID_NDK_VERSION }}"
+
+# GitHub Packages credentials for resolving light-sdk and light-keyboard.
+# Set these in your shell before running mise. Defaults to empty strings if not set.
+GITHUB_USERNAME = "{{ env.GITHUB_USERNAME | default(value='') }}"
+GITHUB_TOKEN = "{{ env.GITHUB_PACKAGES_TOKEN | default(value='') }}"
+
+# ── Tasks ─────────────────────────────────────────────────────────────────────
+
+# One-time: init rustpush git submodule
+[tasks.submodule]
+description = "Init + update the rustpush git submodule"
+run = "git submodule update --init --recursive"
+
+# One-time: install Android SDK components, Rust target, and cargo-ndk
+[tasks.setup]
+description = "One-time dev setup: Android SDK components + Rust Android target + cargo-ndk"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ── Android SDK components ────────────────────────────────────────────────────
+echo "==> Accepting Android SDK licenses..."
+yes | sdkmanager --licenses > /dev/null 2>&1 || true
+
+echo "==> Installing Android SDK components..."
+sdkmanager --install \
+  "platforms;android-36" \
+  "build-tools;36.0.0" \
+  "ndk;${ANDROID_NDK_VERSION}" \
+  "platform-tools"
+
+# ── Rust Android target ───────────────────────────────────────────────────────
+echo "==> Adding Rust Android target (aarch64-linux-android)..."
+rustup target add aarch64-linux-android
+
+# ── cargo-ndk ─────────────────────────────────────────────────────────────────
+echo "==> Installing cargo-ndk..."
+cargo install cargo-ndk --version ${CARGO_NDK_VERSION}
+
+echo ""
+echo "Setup complete. Run 'mise run build' to build everything."
+"""
+
+# Generate local.properties for GitHub Packages authentication
+[tasks."local-properties"]
+description = "Generate local.properties for GitHub Packages authentication"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+cat <<EOF > local.properties
+gpr.user=${GITHUB_USERNAME}
+gpr.key=${GITHUB_TOKEN}
+EOF
+"""
+
+[tasks."check-ndk"]
+description = "Verify Android NDK installation path"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+echo "ANDROID_HOME: ${ANDROID_HOME}"
+echo "ANDROID_NDK_ROOT: ${ANDROID_NDK_ROOT}"
+ls -la "${ANDROID_HOME}" || true
+ls -la "${ANDROID_NDK_ROOT}" || true
+"""
+
+# Generate placeholder FairPlay keys for the rustpush build.
+# The real certs/fairplay/*.{crt,pem} are proprietary and gitignored; the
+# upstream OpenBubbles CI substitutes the tracked legacy-fairplay cert as a
+# fake key so the crate compiles. See:
+# https://github.com/OpenBubbles/openbubbles-app/blob/eed1b63/.github/workflows/build.yml#L45-L65
+[tasks."fairplay-certs"]
+description = "Generate placeholder FairPlay keys for rustpush (copies legacy-fairplay cert)"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+mkdir -p rustpush/certs/fairplay
+
+cert_names=(
+  "4056631661436364584235346952193"
+  "4056631661436364584235346952194"
+  "4056631661436364584235346952195"
+  "4056631661436364584235346952196"
+  "4056631661436364584235346952197"
+  "4056631661436364584235346952198"
+  "4056631661436364584235346952199"
+  "4056631661436364584235346952200"
+  "4056631661436364584235346952201"
+  "4056631661436364584235346952208"
+)
+
+for name in "${cert_names[@]}"; do
+  cp rustpush/certs/legacy-fairplay/fairplay.pem "rustpush/certs/fairplay/${name}.pem"
+  cp rustpush/certs/legacy-fairplay/fairplay.crt "rustpush/certs/fairplay/${name}.crt"
+done
+"""
+
+# Cross-compile the rustpush native service to arm64-v8a and install it into
+# the app's jniLibs. The service is a standalone binary (see native-service/)
+# that links rustpush; feature selection lives in native-service/Cargo.toml.
+[tasks."build:rust"]
+description = "Cross-compile the rustpush native service to arm64-v8a and install into jniLibs"
+depends = ["fairplay-certs"]
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+cd native-service
+cargo ndk --target aarch64-linux-android build --release
+
+# Android only extracts and permits execution of native libs named lib*.so, so
+# the standalone service binary is installed under that name. At runtime
+# NativeServiceLauncher extracts it from nativeLibraryDir and spawns it.
+jni_dir="../tool/src/main/jniLibs/arm64-v8a"
+mkdir -p "${jni_dir}"
+cp target/aarch64-linux-android/release/rustpush-service "${jni_dir}/librustpush_service.so"
+echo "==> Installed librustpush_service.so into ${jni_dir}"
+"""
+
+# Build Android APK
+[tasks."build:android"]
+description = "Build Android debug APK"
+depends = ["local-properties"]
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+gradle assembleDebug
+"""
+
+# Full build: Rust native lib then Android APK
+[tasks.build]
+description = "Full build: rustpush .so + Android APK"
+depends = ["build:rust", "build:android"]
+
+# Run Android unit tests
+[tasks.test]
+description = "Run Android unit tests"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+gradle test
+"""
+
+# Clean all build outputs
+[tasks.clean]
+description = "Clean Rust and Gradle build outputs"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+cd rustpush && cargo clean
+cd .. && gradle clean
+"""

@@ -1,0 +1,27 @@
+.zed/
+# Gradle
+.gradle/
+build/
+*.apk
+*.aar
+
+# Android Studio
+.idea/
+*.iml
+*.iws
+*.ipr
+local.properties
+
+# Rust
+target/
+Cargo.lock
+
+# OS
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Secrets
+local.properties
+secrets/
