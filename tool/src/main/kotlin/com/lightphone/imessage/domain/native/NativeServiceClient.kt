@@ -3,6 +3,7 @@ package com.lightphone.imessage.domain.native
 import android.content.Context
 import android.net.LocalSocket
 import android.net.LocalSocketAddress
+import android.util.Log
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.io.IOException
@@ -51,6 +52,7 @@ class NativeServiceClient(
     private val pendingRequests: MutableMap<String, CompletableFuture<IpcMessage>> = mutableMapOf()
     private val queueMutex = Mutex()
     private val socketMutex = Mutex()
+    private val pendingRequestsMutex = Mutex()
     private val reconnectPolicy: ReconnectPolicy =
             ReconnectPolicy(maxAttempts = 5, baseDelayMs = 1000)
 
@@ -63,6 +65,7 @@ class NativeServiceClient(
     private val json = Json { ignoreUnknownKeys = true }
 
     private companion object {
+        private const val TAG = "NativeServiceClient"
         private const val MAX_FRAME_SIZE = 1024 * 1024 // 1 MB
         private const val MAX_QUEUE_DEPTH = 100
         private const val IPC_TIMEOUT_MS = 10_000L // 10 seconds
@@ -271,13 +274,13 @@ class NativeServiceClient(
     /** Send IPC message and wait for response with matching correlationId (with timeout). */
     private suspend fun sendMessage(msg: IpcMessage): IpcMessage {
         val responseFuture = CompletableFuture<IpcMessage>()
-        pendingRequests[msg.correlationId] = responseFuture
+        pendingRequestsMutex.withLock { pendingRequests[msg.correlationId] = responseFuture }
 
         try {
             writeFrame(msg)
             return responseFuture.get() as IpcMessage
         } finally {
-            pendingRequests.remove(msg.correlationId)
+            pendingRequestsMutex.withLock { pendingRequests.remove(msg.correlationId) }
         }
     }
 
@@ -384,7 +387,7 @@ class NativeServiceClient(
                                         }
                                     }
                         } catch (e: Exception) {
-                            System.err.println("Failed to send keepalive ping: ${e.message}")
+                            Log.e(TAG, "Failed to send keepalive ping: ${e.message}")
                             onSocketFailure(e)
                             break
                         }
@@ -403,7 +406,7 @@ class NativeServiceClient(
                             handleIncomingMessage(msg)
                         }
                     } catch (e: Exception) {
-                        System.err.println("Read loop failed: ${e.message}")
+                        Log.e(TAG, "Read loop failed: ${e.message}")
                         onSocketFailure(e)
                     }
                 }
@@ -412,7 +415,7 @@ class NativeServiceClient(
     /** Handle incoming message: route to pending request or handle built-in commands. */
     private suspend fun handleIncomingMessage(msg: IpcMessage) {
         // Check if this is a response to a pending request
-        val future = pendingRequests[msg.correlationId]
+        val future = pendingRequestsMutex.withLock { pendingRequests[msg.correlationId] }
         if (future != null) {
             future.complete(msg)
             return
@@ -438,7 +441,7 @@ class NativeServiceClient(
             }
             else -> {
                 // Unknown unsolicited message; log and ignore
-                System.err.println("Unknown unsolicited command: ${msg.command}")
+                Log.e(TAG, "Unknown unsolicited command: ${msg.command}")
             }
         }
     }
@@ -456,7 +459,7 @@ class NativeServiceClient(
             try {
                 writeFrame(msg)
             } catch (e: Exception) {
-                System.err.println("Failed to send queued message: ${e.message}")
+                Log.e(TAG, "Failed to send queued message: ${e.message}")
                 // Requeue on failure (up to queue depth limit)
                 queueMutex.withLock {
                     if (ipcQueue.size < MAX_QUEUE_DEPTH) {

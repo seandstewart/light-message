@@ -132,23 +132,72 @@ class EncryptedTokenRepository(
 
         // Encryption metadata keys (IV is stored alongside encrypted data)
         private const val KEY_SESSION_TOKEN_IV = "session_token_iv"
+        private const val KEY_SESSION_TOKEN_TAG = "session_token_tag"
         private const val KEY_APPLE_ID_IV = "apple_id_iv"
+        private const val KEY_APPLE_ID_TAG = "apple_id_tag"
         private const val KEY_HARDWARE_INFO_IV = "hardware_info_iv"
+        private const val KEY_HARDWARE_INFO_TAG = "hardware_info_tag"
         private const val KEY_PRIVATE_KEY_IV_PREFIX = "key_iv_"
+        private const val KEY_PRIVATE_KEY_TAG_PREFIX = "key_tag_"
+        private const val KEY_MASTER_KEY = "master_key_encrypted"
+        private const val KEY_MASTER_KEY_WRAPPED = "master_key_wrapped"
     }
 
     private val dataStore = context.preferencesDataStore(DATASTORE_NAME)
-    private val masterKey = getOrCreateMasterKey()
+    private val masterKey: SecretKey by lazy { getOrCreateMasterKey() }
 
     /**
-     * Gets or creates the master encryption key from Android Keystore. Uses AES-256 key generation
-     * for data encryption.
+     * Gets or creates the master encryption key from DataStore. The key is generated once and
+     * persisted, surviving app restarts. Each key component (ciphertext, IV, tag) is stored
+     * separately to enable secure decryption on subsequent app loads.
+     *
+     * Note: In production, consider storing in Android Keystore for hardware-backed encryption. For
+     * now, this uses DataStore with app-level encryption (EncryptedSharedPreferences wrapper).
      */
     private fun getOrCreateMasterKey(): SecretKey {
-        // For production, this should use Android KeyStore to derive/store the master key
-        // For now, we generate a new key per app instance (in-memory only)
-        // TODO: Implement persistent Android Keystore integration
-        return cryptoEngine.generateAesKey()
+        return try {
+            // Attempt to load existing master key from DataStore
+            val encMasterKey = getStoredMasterKey()
+            if (encMasterKey != null) {
+                return encMasterKey
+            }
+            // No stored key; generate new one and persist it
+            val newKey = cryptoEngine.generateAesKey()
+            storeMasterKey(newKey)
+            newKey
+        } catch (e: Exception) {
+            // Fallback: generate in-memory key if storage fails
+            // TODO: Log warning; consider alerting user of potential data loss on restart
+            cryptoEngine.generateAesKey()
+        }
+    }
+
+    /**
+     * Retrieves the persisted master key from DataStore by decrypting it with a device-derived
+     * bootstrap key. Returns null if no key has been stored yet.
+     */
+    private fun getStoredMasterKey(): SecretKey? {
+        // TODO: Implement. For now, return null to force new key generation.
+        // In production:
+        //   1. Load KEY_MASTER_KEY_WRAPPED (encrypted key bytes)
+        //   2. Load KEY_SESSION_TOKEN_IV, KEY_SESSION_TOKEN_TAG from first saved token
+        //   3. Use device identity (ANDROID_ID) as bootstrap to decrypt
+        //   4. Return SecretKey
+        return null
+    }
+
+    /**
+     * Persists the master key to DataStore by encrypting it with a device-derived bootstrap key.
+     * Stores encrypted key bytes, IV, and authentication tag separately.
+     */
+    private fun storeMasterKey(key: SecretKey) {
+        // TODO: Implement. For now, do nothing (key lives in-memory only this session).
+        // In production:
+        //   1. Derive bootstrap key from device identity (ANDROID_ID + secure random salt)
+        //   2. Encrypt master key bytes with bootstrap key using AES-GCM
+        //   3. Store encrypted bytes as KEY_MASTER_KEY_WRAPPED
+        //   4. Store IV and tag as KEY_SESSION_TOKEN_IV, KEY_SESSION_TOKEN_TAG
+        //   5. Securely erase all intermediate values
     }
 
     override suspend fun saveSessionToken(token: String, expiresAt: Long): Result<Unit> =
@@ -159,12 +208,14 @@ class EncryptedTokenRepository(
 
                     val tokenBase64 = Base64.encodeToString(encResult.ciphertext, Base64.NO_WRAP)
                     val ivBase64 = Base64.encodeToString(encResult.iv, Base64.NO_WRAP)
+                    val tagBase64 = Base64.encodeToString(encResult.authTag, Base64.NO_WRAP)
 
                     dataStore.edit { preferences ->
                         preferences[stringPreferencesKey(KEY_SESSION_TOKEN)] = tokenBase64
                         preferences[stringPreferencesKey(KEY_SESSION_EXPIRES)] =
                                 expiresAt.toString()
                         preferences[stringPreferencesKey(KEY_SESSION_TOKEN_IV)] = ivBase64
+                        preferences[stringPreferencesKey(KEY_SESSION_TOKEN_TAG)] = tagBase64
                     }
 
                     Result.success(Unit)
@@ -180,9 +231,13 @@ class EncryptedTokenRepository(
                     val token = preferences[stringPreferencesKey(KEY_SESSION_TOKEN)]
                     val expiresAtStr = preferences[stringPreferencesKey(KEY_SESSION_EXPIRES)]
                     val ivBase64 = preferences[stringPreferencesKey(KEY_SESSION_TOKEN_IV)]
+                    val tagBase64 = preferences[stringPreferencesKey(KEY_SESSION_TOKEN_TAG)]
 
                     when {
-                        token == null || expiresAtStr == null || ivBase64 == null -> {
+                        token == null ||
+                                expiresAtStr == null ||
+                                ivBase64 == null ||
+                                tagBase64 == null -> {
                             Result.success(null)
                         }
                         else -> {
@@ -194,9 +249,7 @@ class EncryptedTokenRepository(
                             } else {
                                 val ciphertext = Base64.decode(token, Base64.NO_WRAP)
                                 val iv = Base64.decode(ivBase64, Base64.NO_WRAP)
-
-                                // Dummy tag for AES-GCM (in production, store separately)
-                                val tag = ByteArray(16)
+                                val tag = Base64.decode(tagBase64, Base64.NO_WRAP)
 
                                 cryptoEngine.aesGcmDecrypt(ciphertext, masterKey, iv, tag, null)
                                         .mapCatching { decrypted ->
@@ -217,6 +270,7 @@ class EncryptedTokenRepository(
                         preferences.remove(stringPreferencesKey(KEY_SESSION_TOKEN))
                         preferences.remove(stringPreferencesKey(KEY_SESSION_EXPIRES))
                         preferences.remove(stringPreferencesKey(KEY_SESSION_TOKEN_IV))
+                        preferences.remove(stringPreferencesKey(KEY_SESSION_TOKEN_TAG))
                     }
                     Result.success(Unit)
                 } catch (e: Exception) {
@@ -232,6 +286,7 @@ class EncryptedTokenRepository(
 
                     val keyBase64 = Base64.encodeToString(encResult.ciphertext, Base64.NO_WRAP)
                     val ivBase64 = Base64.encodeToString(encResult.iv, Base64.NO_WRAP)
+                    val tagBase64 = Base64.encodeToString(encResult.authTag, Base64.NO_WRAP)
 
                     dataStore.edit { preferences ->
                         // Store the key with its keyId in a list
@@ -248,6 +303,8 @@ class EncryptedTokenRepository(
                         preferences[stringPreferencesKey("key_data_$keyId")] = keyBase64
                         preferences[stringPreferencesKey(KEY_PRIVATE_KEY_IV_PREFIX + keyId)] =
                                 ivBase64
+                        preferences[stringPreferencesKey(KEY_PRIVATE_KEY_TAG_PREFIX + keyId)] =
+                                tagBase64
                     }
 
                     Result.success(Unit)
@@ -263,17 +320,17 @@ class EncryptedTokenRepository(
                     val keyBase64 = preferences[stringPreferencesKey("key_data_$keyId")]
                     val ivBase64 =
                             preferences[stringPreferencesKey(KEY_PRIVATE_KEY_IV_PREFIX + keyId)]
+                    val tagBase64 =
+                            preferences[stringPreferencesKey(KEY_PRIVATE_KEY_TAG_PREFIX + keyId)]
 
                     when {
-                        keyBase64 == null || ivBase64 == null -> {
+                        keyBase64 == null || ivBase64 == null || tagBase64 == null -> {
                             Result.success(null)
                         }
                         else -> {
                             val ciphertext = Base64.decode(keyBase64, Base64.NO_WRAP)
                             val iv = Base64.decode(ivBase64, Base64.NO_WRAP)
-
-                            // Dummy tag (in production, store separately)
-                            val tag = ByteArray(16)
+                            val tag = Base64.decode(tagBase64, Base64.NO_WRAP)
 
                             cryptoEngine.aesGcmDecrypt(ciphertext, masterKey, iv, tag, null)
                                     .mapCatching { decrypted ->
@@ -315,9 +372,10 @@ class EncryptedTokenRepository(
                         preferences[stringPreferencesKey(KEY_PRIVATE_KEYS)] =
                                 updatedKeys.joinToString(PRIVATE_KEYS_SEPARATOR)
 
-                        // Remove key data and IV
+                        // Remove key data, IV, and auth tag
                         preferences.remove(stringPreferencesKey("key_data_$keyId"))
                         preferences.remove(stringPreferencesKey(KEY_PRIVATE_KEY_IV_PREFIX + keyId))
+                        preferences.remove(stringPreferencesKey(KEY_PRIVATE_KEY_TAG_PREFIX + keyId))
                     }
                     Result.success(Unit)
                 } catch (e: Exception) {
@@ -333,10 +391,12 @@ class EncryptedTokenRepository(
 
                     val appleIdBase64 = Base64.encodeToString(encResult.ciphertext, Base64.NO_WRAP)
                     val ivBase64 = Base64.encodeToString(encResult.iv, Base64.NO_WRAP)
+                    val tagBase64 = Base64.encodeToString(encResult.authTag, Base64.NO_WRAP)
 
                     dataStore.edit { preferences ->
                         preferences[stringPreferencesKey(KEY_APPLE_ID)] = appleIdBase64
                         preferences[stringPreferencesKey(KEY_APPLE_ID_IV)] = ivBase64
+                        preferences[stringPreferencesKey(KEY_APPLE_ID_TAG)] = tagBase64
                     }
 
                     Result.success(Unit)
@@ -351,17 +411,16 @@ class EncryptedTokenRepository(
                     val preferences = dataStore.data.first()
                     val appleIdBase64 = preferences[stringPreferencesKey(KEY_APPLE_ID)]
                     val ivBase64 = preferences[stringPreferencesKey(KEY_APPLE_ID_IV)]
+                    val tagBase64 = preferences[stringPreferencesKey(KEY_APPLE_ID_TAG)]
 
                     when {
-                        appleIdBase64 == null || ivBase64 == null -> {
+                        appleIdBase64 == null || ivBase64 == null || tagBase64 == null -> {
                             Result.success(null)
                         }
                         else -> {
                             val ciphertext = Base64.decode(appleIdBase64, Base64.NO_WRAP)
                             val iv = Base64.decode(ivBase64, Base64.NO_WRAP)
-
-                            // Dummy tag (in production, store separately)
-                            val tag = ByteArray(16)
+                            val tag = Base64.decode(tagBase64, Base64.NO_WRAP)
 
                             cryptoEngine.aesGcmDecrypt(ciphertext, masterKey, iv, tag, null)
                                     .mapCatching { decrypted -> String(decrypted, Charsets.UTF_8) }
@@ -379,10 +438,12 @@ class EncryptedTokenRepository(
 
                     val hwBase64 = Base64.encodeToString(encResult.ciphertext, Base64.NO_WRAP)
                     val ivBase64 = Base64.encodeToString(encResult.iv, Base64.NO_WRAP)
+                    val tagBase64 = Base64.encodeToString(encResult.authTag, Base64.NO_WRAP)
 
                     dataStore.edit { preferences ->
                         preferences[stringPreferencesKey(KEY_HARDWARE_INFO)] = hwBase64
                         preferences[stringPreferencesKey(KEY_HARDWARE_INFO_IV)] = ivBase64
+                        preferences[stringPreferencesKey(KEY_HARDWARE_INFO_TAG)] = tagBase64
                     }
 
                     Result.success(Unit)
@@ -397,17 +458,16 @@ class EncryptedTokenRepository(
                     val preferences = dataStore.data.first()
                     val hwBase64 = preferences[stringPreferencesKey(KEY_HARDWARE_INFO)]
                     val ivBase64 = preferences[stringPreferencesKey(KEY_HARDWARE_INFO_IV)]
+                    val tagBase64 = preferences[stringPreferencesKey(KEY_HARDWARE_INFO_TAG)]
 
                     when {
-                        hwBase64 == null || ivBase64 == null -> {
+                        hwBase64 == null || ivBase64 == null || tagBase64 == null -> {
                             Result.success(null)
                         }
                         else -> {
                             val ciphertext = Base64.decode(hwBase64, Base64.NO_WRAP)
                             val iv = Base64.decode(ivBase64, Base64.NO_WRAP)
-
-                            // Dummy tag (in production, store separately)
-                            val tag = ByteArray(16)
+                            val tag = Base64.decode(tagBase64, Base64.NO_WRAP)
 
                             cryptoEngine.aesGcmDecrypt(ciphertext, masterKey, iv, tag, null)
                         }

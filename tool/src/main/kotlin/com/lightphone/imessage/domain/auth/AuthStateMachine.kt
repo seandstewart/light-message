@@ -11,6 +11,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Internal state machine managing authentication flow and state transitions.
@@ -31,6 +33,7 @@ internal class AuthStateMachine(
         private val scope: CoroutineScope
 ) {
     private val _state = MutableStateFlow<AuthState>(AuthState.Idle)
+    private val stateMutex = Mutex()
     private var currentChallenge: String? = null
     private var loginRetryCount = 0
     private var twoFARetryCount = 0
@@ -47,9 +50,11 @@ internal class AuthStateMachine(
     suspend fun requestLogin(appleId: AppleId, password: String): Result<Unit> {
         return try {
             // Reset retry counters
-            loginRetryCount = 0
-            twoFARetryCount = 0
-            twoFAResendCount = 0
+            stateMutex.withLock {
+                loginRetryCount = 0
+                twoFARetryCount = 0
+                twoFAResendCount = 0
+            }
             _state.value = AuthState.AwaitingCredentials()
 
             // Attempt login with retry logic (3 retries on network failure)
@@ -60,7 +65,7 @@ internal class AuthStateMachine(
 
             when (loginResponse) {
                 is LoginResponse.TwoFactorRequired -> {
-                    currentChallenge = loginResponse.challenge
+                    stateMutex.withLock { currentChallenge = loginResponse.challenge }
                     _state.value = AuthState.AwaitingTwoFactorCode(loginResponse.challenge)
                     Result.success(Unit)
                 }
@@ -84,10 +89,12 @@ internal class AuthStateMachine(
     suspend fun submitTwoFA(code: String): Result<Unit> {
         return try {
             val challenge =
-                    currentChallenge
-                            ?: return Result.failure(
-                                    IllegalStateException("No active 2FA challenge")
-                            )
+                    stateMutex.withLock {
+                        currentChallenge
+                                ?: return Result.failure(
+                                        IllegalStateException("No active 2FA challenge")
+                                )
+                    }
 
             if (code.length != 6 || !code.all { it.isDigit() }) {
                 return Result.failure(IllegalArgumentException("2FA code must be exactly 6 digits"))
@@ -113,7 +120,7 @@ internal class AuthStateMachine(
                     sessionResponse.expiresAt
             )
         } catch (e: Exception) {
-            twoFARetryCount++
+            stateMutex.withLock { twoFARetryCount++ }
             val errorMsg = e.message ?: "2FA submission failed"
             _state.value = AuthState.Failed(errorMsg)
             Result.failure(e)
@@ -126,21 +133,26 @@ internal class AuthStateMachine(
      */
     suspend fun resendTwoFA(): Result<Unit> {
         return try {
-            val challenge =
-                    currentChallenge
-                            ?: return Result.failure(
-                                    IllegalStateException("No active 2FA challenge")
-                            )
+            val (challenge, canResend) =
+                    stateMutex.withLock {
+                        val ch =
+                                currentChallenge
+                                        ?: return Result.failure(
+                                                IllegalStateException("No active 2FA challenge")
+                                        )
+                        val can = twoFAResendCount < 3
+                        Pair(ch, can)
+                    }
 
-            if (twoFAResendCount >= 3) {
+            if (!canResend) {
                 return Result.failure(IllegalStateException("Maximum 2FA resend attempts exceeded"))
             }
 
             val resendResult = relayClient.resendTwoFactor(challenge)
             if (resendResult.isSuccess) {
-                twoFAResendCount++
+                stateMutex.withLock { twoFAResendCount++ }
                 // Keep state as AwaitingTwoFactorCode
-                Result.success(Unit)
+                return Result.success(Unit)
             } else {
                 val error = resendResult.exceptionOrNull() ?: Exception("Resend failed")
                 _state.value = AuthState.Failed(error.message ?: "Resend failed")
@@ -213,10 +225,12 @@ internal class AuthStateMachine(
                 throw clearTokenResult.exceptionOrNull() ?: Exception("Failed to clear session")
             }
 
-            currentChallenge = null
-            loginRetryCount = 0
-            twoFARetryCount = 0
-            twoFAResendCount = 0
+            stateMutex.withLock {
+                currentChallenge = null
+                loginRetryCount = 0
+                twoFARetryCount = 0
+                twoFAResendCount = 0
+            }
 
             _state.value = AuthState.Idle
             Result.success(Unit)
@@ -259,11 +273,7 @@ internal class AuthStateMachine(
 
             // Poll for activation status
             val activationResult =
-                    nativeClient.pollActivationStatus(
-                            deviceId = hardwareInfo.deviceId,
-                            maxAttempts = 30,
-                            pollIntervalMs = 1000
-                    )
+                    nativeClient.pollActivationStatus(deviceId = hardwareInfo.deviceId)
             if (activationResult.isFailure) {
                 throw activationResult.exceptionOrNull() ?: Exception("Activation polling failed")
             }

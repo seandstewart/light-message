@@ -1,10 +1,12 @@
 package com.lightphone.imessage.domain.relay
 
+import android.util.Log
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.ConcurrentLinkedQueue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -35,12 +37,16 @@ class RelayService(
         private val scope: CoroutineScope
 ) : IRelayService {
 
+    private companion object {
+        private const val TAG = "RelayService"
+    }
+
     private val _connectionState =
             MutableStateFlow<RelayConnectionState>(RelayConnectionState.Disconnected)
     override val connectionState: StateFlow<RelayConnectionState> = _connectionState
 
     private var webSocket: WebSocket? = null
-    private val commandQueue: MutableList<RelayCommand> = mutableListOf()
+    private val commandQueue: ConcurrentLinkedQueue<RelayCommand> = ConcurrentLinkedQueue()
     private val reconnectPolicy: ReconnectPolicy =
             ReconnectPolicy(maxAttempts = 5, baseDelayMs = 1000)
 
@@ -48,6 +54,7 @@ class RelayService(
     private var keepaliveJob: Job? = null
     private var reconnectJob: Job? = null
     private var pingTimeoutJob: Job? = null
+    private var currentEndpoint: RelayEndpoint? = null
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -55,7 +62,8 @@ class RelayService(
             try {
                 _connectionState.emit(RelayConnectionState.Connecting)
                 reconnectAttempt = 0
-                performConnect(endpoint)
+                currentEndpoint = endpoint
+                performConnect()
             } catch (e: Exception) {
                 _connectionState.emit(RelayConnectionState.Failed(e.message ?: "Unknown error"))
                 Result.failure(e)
@@ -68,6 +76,7 @@ class RelayService(
                 pingTimeoutJob?.cancel()
                 webSocket?.close(1000, "Disconnect requested")
                 webSocket = null
+                currentEndpoint = null
                 _connectionState.emit(RelayConnectionState.Disconnected)
                 Result.success(Unit)
             } catch (e: Exception) {
@@ -86,7 +95,7 @@ class RelayService(
                 if (_connectionState.value is RelayConnectionState.Connected) {
                     sendCommand(command)
                 } else {
-                    synchronized(commandQueue) { commandQueue.add(command) }
+                    commandQueue.add(command)
                 }
 
                 Result.success(message.messageId)
@@ -99,7 +108,7 @@ class RelayService(
                 if (_connectionState.value is RelayConnectionState.Connected) {
                     sendCommand(RelayCommand.RequestSync)
                 } else {
-                    synchronized(commandQueue) { commandQueue.add(RelayCommand.RequestSync) }
+                    commandQueue.add(RelayCommand.RequestSync)
                 }
                 Result.success(Unit)
             } catch (e: Exception) {
@@ -107,7 +116,14 @@ class RelayService(
             }
 
     /** Perform WebSocket connection with retry logic. */
-    private suspend fun performConnect(endpoint: RelayEndpoint) {
+    private suspend fun performConnect() {
+        val endpoint = currentEndpoint
+        if (endpoint == null) {
+            val error = "No endpoint configured for connection"
+            _connectionState.emit(RelayConnectionState.Failed(error))
+            return
+        }
+
         if (!reconnectPolicy.shouldRetry(reconnectAttempt)) {
             val error = "Max reconnect attempts (${reconnectPolicy.maxAttempts}) exhausted"
             _connectionState.emit(RelayConnectionState.Failed(error))
@@ -161,13 +177,12 @@ class RelayService(
         scope.launch {
             _connectionState.emit(RelayConnectionState.Connected)
 
-            // Drain command queue
-            val commandsToSend =
-                    synchronized(commandQueue) {
-                        val cmds = commandQueue.toList()
-                        commandQueue.clear()
-                        cmds
-                    }
+            // Drain command queue (ConcurrentLinkedQueue is thread-safe)
+            val commandsToSend = mutableListOf<RelayCommand>()
+            while (true) {
+                val cmd = commandQueue.poll() ?: break
+                commandsToSend.add(cmd)
+            }
 
             for (cmd in commandsToSend) {
                 sendCommand(cmd)
@@ -189,7 +204,7 @@ class RelayService(
                 handleIncomingCommand(frame)
             } catch (e: Exception) {
                 // Log and ignore parse errors, continue operation
-                System.err.println("Failed to parse WebSocket frame: ${e.message}")
+                Log.e(TAG, "Failed to parse WebSocket frame: ${e.message}")
             }
         }
     }
@@ -214,9 +229,7 @@ class RelayService(
 
                 reconnectAttempt = nextAttempt
                 delay(delayMs)
-
-                // Note: reconnect endpoint needs to be stored or passed differently
-                // For now, this is a limitation of the current design
+                performConnect()
             } else {
                 val error =
                         "WebSocket failure after ${reconnectPolicy.maxAttempts} attempts: ${t.message}"
@@ -246,7 +259,7 @@ class RelayService(
             val frame = frameData(json.toByteArray(StandardCharsets.UTF_8))
             ws.send(ByteString.of(frame))
         } catch (e: Exception) {
-            System.err.println("Failed to send command: ${e.message}")
+            Log.e(TAG, "Failed to send command: ${e.message}")
         }
     }
 
@@ -380,7 +393,7 @@ class RelayService(
                                         }
                                     }
                         } catch (e: Exception) {
-                            System.err.println("Failed to send keepalive ping: ${e.message}")
+                            Log.e(TAG, "Failed to send keepalive ping: ${e.message}")
                             break
                         }
                     }
