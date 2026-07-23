@@ -19,6 +19,10 @@ data class DomainEventEntity(
         @PrimaryKey val id: String,
         val aggregateId: String,
         val eventType: String,
+        /**
+         * JSON-encoded event payload. Must be valid UTF-8 JSON string; schema depends on eventType.
+         * No validation performed at storage time; consumers must validate and handle parse errors.
+         */
         val payload: String,
         val occurredAt: Long,
         val processed: Boolean = false

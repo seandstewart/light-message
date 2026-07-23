@@ -15,6 +15,10 @@ data class ThreadEntity(
         val title: String,
         val lastMessage: String,
         @ColumnInfo(name = "lastTimestamp") val lastTimestamp: Long,
+        /**
+         * Pipe-separated list of participant URIs (format: "uri1|uri2|uri3"). Must not be empty;
+         * each URI should be a valid iMessage identifier (email or phone).
+         */
         val participantUris: String,
         @ColumnInfo(name = "unreadCount") val unreadCount: Int = 0,
         val isMuted: Boolean = false

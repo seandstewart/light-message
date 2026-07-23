@@ -135,6 +135,8 @@ public class MessageCodec implements IMessageCodec {
             }
 
             // Step 3: ECDSA verify signature
+            // Signature is computed over: wrappedKey || ciphertext || authTag (concatenated with no delimiters)
+            // This ensures integrity of the encrypted message and protects against tampering.
             byte[] dataToVerify = concatenateByteArrays(wrappedKey, ciphertext, authTag);
             Result<Void> verifyResult = cryptoEngine.ecdsaVerify(dataToVerify, signature, senderCert);
             if (verifyResult.isFailure) {

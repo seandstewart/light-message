@@ -96,6 +96,8 @@ internal class AuthStateMachine(
                                 )
                     }
 
+            // Validate 2FA code format: numeric 6-digit codes as per Apple iMessage specification.
+            // Non-numeric codes or codes of different lengths are rejected.
             if (code.length != 6 || !code.all { it.isDigit() }) {
                 return Result.failure(IllegalArgumentException("2FA code must be exactly 6 digits"))
             }

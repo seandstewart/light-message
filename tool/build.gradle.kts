@@ -20,24 +20,20 @@ android {
         versionCode = 1
         versionName = "1.0"
 
-        ndk {
-            abiFilters += setOf("arm64-v8a")
-        }
+        ndk { abiFilters += setOf("arm64-v8a") }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
+                    getDefaultProguardFile("proguard-android-optimize.txt"),
+                    "proguard-rules.pro"
             )
         }
     }
 
-    buildFeatures {
-        compose = true
-    }
+    buildFeatures { compose = true }
 
     packaging {
         jniLibs {
@@ -55,11 +51,7 @@ android {
     }
 }
 
-kotlin {
-    compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
-    }
-}
+kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
 
 dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib:2.3.0")
