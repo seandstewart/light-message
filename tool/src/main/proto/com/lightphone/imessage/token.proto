@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package com.lightphone.imessage;
+
+/**
+ * Protocol Buffer definitions for encrypted token and key storage in DataStore.
+ * All sensitive fields (tokens, keys, IDs) are encrypted at rest using AES-256-GCM.
+ */
+
+/**
+ * Represents an encrypted session token with expiration timestamp.
+ * The session_token field contains the AES-256-GCM encrypted token bytes (base64-encoded).
+ */
+message StoredToken {
+    string session_token = 1;      // AES-256-GCM encrypted, base64-encoded
+    int64 expires_at = 2;           // Expiration timestamp in milliseconds
+    bytes iv = 3;                   // 12-byte initialization vector for AES-GCM
+}
+
+/**
+ * Represents an encrypted private key stored with its identifier.
+ * The key_bytes field contains PKCS#8 DER-encoded private key data,
+ * encrypted with AES-256-GCM.
+ */
+message StoredKey {
+    string key_id = 1;              // Unique key identifier (plaintext)
+    bytes key_bytes = 2;            // PKCS#8 DER-encoded, AES-256-GCM encrypted
+    bytes iv = 3;                   // 12-byte initialization vector for AES-GCM
+}
+
+/**
+ * Represents an encrypted Apple ID string.
+ */
+message StoredAppleId {
+    string apple_id = 1;            // AES-256-GCM encrypted, base64-encoded
+    bytes iv = 2;                   // 12-byte initialization vector for AES-GCM
+}
+
+/**
+ * Root message for token store, containing all encrypted sensitive data.
+ * Persisted to DataStore preferences.
+ */
+message TokenStore {
+    StoredToken session_token = 1;  // Encrypted session token
+    repeated StoredKey keys = 2;    // List of encrypted private keys
+    StoredAppleId apple_id = 3;     // Encrypted Apple ID
+    bytes hardware_info = 4;        // AES-256-GCM encrypted hardware info
+}
