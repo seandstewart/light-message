@@ -8,19 +8,22 @@ import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 /**
- * Data access object for message entities.
- * Supports CRUD and flow-based observation.
+ * Data access object for message entities. Supports CRUD and flow-based observation.
+ *
+ * Foreign Key Constraints:
+ * - MessageEntity.threadId → ThreadEntity.id (CASCADE on delete)
+ *
+ * Indices:
+ * - threadId (for filtering by thread)
+ * - timestamp (for ordering)
  */
 @Dao
 interface MessageDao {
-    @Insert
-    suspend fun insertMessage(message: MessageEntity)
+    @Insert suspend fun insertMessage(message: MessageEntity)
 
-    @Update
-    suspend fun updateMessage(message: MessageEntity)
+    @Update suspend fun updateMessage(message: MessageEntity)
 
-    @Delete
-    suspend fun deleteMessage(message: MessageEntity)
+    @Delete suspend fun deleteMessage(message: MessageEntity)
 
     @Query("SELECT * FROM messages WHERE threadId = :threadId ORDER BY timestamp DESC")
     fun getMessagesForThread(threadId: String): Flow<List<MessageEntity>>
