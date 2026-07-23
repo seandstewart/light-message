@@ -12,18 +12,18 @@ import androidx.room.PrimaryKey
  * - aggregateId references the affected aggregate (not enforced as FK)
  */
 @Entity(
-        tableName = "domain_events",
-        indices = [Index("aggregateId"), Index("occurredAt"), Index("processed")]
+    tableName = "domain_events",
+    indices = [Index("aggregateId"), Index("occurredAt"), Index("processed")],
 )
 data class DomainEventEntity(
-        @PrimaryKey val id: String,
-        val aggregateId: String,
-        val eventType: String,
-        /**
-         * JSON-encoded event payload. Must be valid UTF-8 JSON string; schema depends on eventType.
-         * No validation performed at storage time; consumers must validate and handle parse errors.
-         */
-        val payload: String,
-        val occurredAt: Long,
-        val processed: Boolean = false
+    @PrimaryKey val id: String,
+    val aggregateId: String,
+    val eventType: String,
+    /**
+     * JSON-encoded event payload. Must be valid UTF-8 JSON string; schema depends on eventType.
+     * No validation performed at storage time; consumers must validate and handle parse errors.
+     */
+    val payload: String,
+    val occurredAt: Long,
+    val processed: Boolean = false,
 )

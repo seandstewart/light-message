@@ -15,7 +15,11 @@ class RustpushService : Service() {
         return null
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    override fun onStartCommand(
+        intent: Intent?,
+        flags: Int,
+        startId: Int,
+    ): Int {
         Log.d(TAG, "RustpushService started")
         // TODO: Initialize rustpush native library, establish IPC connection
         return START_STICKY

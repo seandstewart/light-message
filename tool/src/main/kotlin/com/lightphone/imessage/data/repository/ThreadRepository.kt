@@ -15,34 +15,34 @@ class ThreadRepository(private val database: ImessageDatabase) : IThreadReposito
     private val threadDao = database.threadDao()
 
     override suspend fun insertThread(thread: ThreadEntity): Result<Unit> =
-            withContext(Dispatchers.IO) {
-                return@withContext try {
-                    threadDao.insert(thread)
-                    Result.success(Unit)
-                } catch (e: Exception) {
-                    Result.failure(e)
-                }
+        withContext(Dispatchers.IO) {
+            return@withContext try {
+                threadDao.insert(thread)
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Result.failure(e)
             }
+        }
 
     override suspend fun updateThread(thread: ThreadEntity): Result<Unit> =
-            withContext(Dispatchers.IO) {
-                return@withContext try {
-                    threadDao.update(thread)
-                    Result.success(Unit)
-                } catch (e: Exception) {
-                    Result.failure(e)
-                }
+        withContext(Dispatchers.IO) {
+            return@withContext try {
+                threadDao.update(thread)
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Result.failure(e)
             }
+        }
 
     override suspend fun deleteThread(threadId: String): Result<Unit> =
-            withContext(Dispatchers.IO) {
-                return@withContext try {
-                    threadDao.deleteById(threadId)
-                    Result.success(Unit)
-                } catch (e: Exception) {
-                    Result.failure(e)
-                }
+        withContext(Dispatchers.IO) {
+            return@withContext try {
+                threadDao.deleteById(threadId)
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Result.failure(e)
             }
+        }
 
     override fun getThreadById(threadId: String): Flow<ThreadEntity?> {
         return threadDao.getById(threadId)
@@ -57,26 +57,26 @@ class ThreadRepository(private val database: ImessageDatabase) : IThreadReposito
     }
 
     override suspend fun markThreadAsRead(threadId: String): Result<Unit> =
-            withContext(Dispatchers.IO) {
-                return@withContext try {
-                    threadDao.markRead(threadId)
-                    Result.success(Unit)
-                } catch (e: Exception) {
-                    Result.failure(e)
-                }
+        withContext(Dispatchers.IO) {
+            return@withContext try {
+                threadDao.markRead(threadId)
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Result.failure(e)
             }
+        }
 
     override suspend fun updateLastMessage(
-            threadId: String,
-            lastMessage: String,
-            timestamp: Long
+        threadId: String,
+        lastMessage: String,
+        timestamp: Long,
     ): Result<Unit> =
-            withContext(Dispatchers.IO) {
-                return@withContext try {
-                    threadDao.updateLastMessage(threadId, lastMessage, timestamp)
-                    Result.success(Unit)
-                } catch (e: Exception) {
-                    Result.failure(e)
-                }
+        withContext(Dispatchers.IO) {
+            return@withContext try {
+                threadDao.updateLastMessage(threadId, lastMessage, timestamp)
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Result.failure(e)
             }
+        }
 }

@@ -13,30 +13,31 @@ import androidx.room.PrimaryKey
  * - PK id (UUIDv4)
  */
 @Entity(
-        tableName = "messages",
-        foreignKeys =
-                [
-                        ForeignKey(
-                                entity = ThreadEntity::class,
-                                parentColumns = ["id"],
-                                childColumns = ["threadId"],
-                                onDelete = ForeignKey.CASCADE
-                        )],
-        indices = [Index("threadId"), Index("timestamp")]
+    tableName = "messages",
+    foreignKeys =
+        [
+            ForeignKey(
+                entity = ThreadEntity::class,
+                parentColumns = ["id"],
+                childColumns = ["threadId"],
+                onDelete = ForeignKey.CASCADE,
+            ),
+        ],
+    indices = [Index("threadId"), Index("timestamp")],
 )
 data class MessageEntity(
-        @PrimaryKey val id: String,
-        val threadId: String,
-        val sender: String,
-        val body: String,
-        val timestamp: Long,
-        val type: Int,
-        val isOutgoing: Boolean,
-        val status: Int,
-        val deliveryReceiptAt: Long? = null,
-        val readReceiptAt: Long? = null,
-        val attachmentCount: Int = 0,
-        val rawEnvelope: ByteArray? = null
+    @PrimaryKey val id: String,
+    val threadId: String,
+    val sender: String,
+    val body: String,
+    val timestamp: Long,
+    val type: Int,
+    val isOutgoing: Boolean,
+    val status: Int,
+    val deliveryReceiptAt: Long? = null,
+    val readReceiptAt: Long? = null,
+    val attachmentCount: Int = 0,
+    val rawEnvelope: ByteArray? = null,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -56,7 +57,9 @@ data class MessageEntity(
         if (rawEnvelope != null) {
             if (other.rawEnvelope == null) return false
             if (!rawEnvelope.contentEquals(other.rawEnvelope)) return false
-        } else if (other.rawEnvelope != null) return false
+        } else if (other.rawEnvelope != null) {
+            return false
+        }
         return true
     }
 

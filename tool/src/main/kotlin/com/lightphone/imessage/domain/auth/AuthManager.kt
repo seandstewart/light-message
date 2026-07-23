@@ -11,7 +11,10 @@ import kotlinx.coroutines.flow.StateFlow
 class AuthManager(private val stateMachine: AuthStateMachine) : IAuthManager {
     override val state: StateFlow<AuthState> = stateMachine.getState()
 
-    override suspend fun startAuthentication(appleId: AppleId, password: String): Result<Unit> {
+    override suspend fun startAuthentication(
+        appleId: AppleId,
+        password: String,
+    ): Result<Unit> {
         return stateMachine.requestLogin(appleId, password)
     }
 

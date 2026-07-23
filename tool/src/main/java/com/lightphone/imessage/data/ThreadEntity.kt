@@ -13,11 +13,11 @@ import androidx.room.PrimaryKey
  */
 @Entity(tableName = "threads", indices = [Index("lastTimestamp")])
 data class ThreadEntity(
-        @PrimaryKey val id: String,
-        val title: String,
-        val lastMessage: String,
-        val lastTimestamp: Long,
-        val participantUris: String,
-        val unreadCount: Int = 0,
-        val isMuted: Boolean = false
+    @PrimaryKey val id: String,
+    val title: String,
+    val lastMessage: String,
+    val lastTimestamp: Long,
+    val participantUris: String,
+    val unreadCount: Int = 0,
+    val isMuted: Boolean = false,
 )

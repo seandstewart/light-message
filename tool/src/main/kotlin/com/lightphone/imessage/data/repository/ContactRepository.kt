@@ -15,34 +15,34 @@ class ContactRepository(private val database: ImessageDatabase) : IContactReposi
     private val contactDao = database.contactDao()
 
     override suspend fun insertContact(contact: ContactEntity): Result<Unit> =
-            withContext(Dispatchers.IO) {
-                return@withContext try {
-                    contactDao.insert(contact)
-                    Result.success(Unit)
-                } catch (e: Exception) {
-                    Result.failure(e)
-                }
+        withContext(Dispatchers.IO) {
+            return@withContext try {
+                contactDao.insert(contact)
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Result.failure(e)
             }
+        }
 
     override suspend fun updateContact(contact: ContactEntity): Result<Unit> =
-            withContext(Dispatchers.IO) {
-                return@withContext try {
-                    contactDao.update(contact)
-                    Result.success(Unit)
-                } catch (e: Exception) {
-                    Result.failure(e)
-                }
+        withContext(Dispatchers.IO) {
+            return@withContext try {
+                contactDao.update(contact)
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Result.failure(e)
             }
+        }
 
     override suspend fun deleteContact(contactId: String): Result<Unit> =
-            withContext(Dispatchers.IO) {
-                return@withContext try {
-                    contactDao.deleteById(contactId)
-                    Result.success(Unit)
-                } catch (e: Exception) {
-                    Result.failure(e)
-                }
+        withContext(Dispatchers.IO) {
+            return@withContext try {
+                contactDao.deleteById(contactId)
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Result.failure(e)
             }
+        }
 
     override fun getContactById(contactId: String): Flow<ContactEntity?> {
         return contactDao.getById(contactId)
@@ -57,12 +57,12 @@ class ContactRepository(private val database: ImessageDatabase) : IContactReposi
     }
 
     override suspend fun upsertContact(contact: ContactEntity): Result<Unit> =
-            withContext(Dispatchers.IO) {
-                return@withContext try {
-                    contactDao.upsert(contact)
-                    Result.success(Unit)
-                } catch (e: Exception) {
-                    Result.failure(e)
-                }
+        withContext(Dispatchers.IO) {
+            return@withContext try {
+                contactDao.upsert(contact)
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Result.failure(e)
             }
+        }
 }

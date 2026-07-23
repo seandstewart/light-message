@@ -10,13 +10,13 @@ import com.lightphone.imessage.data.entity.ThreadEntity
 import com.lightphone.imessage.data.repository.ContactRepository
 import com.lightphone.imessage.data.repository.MessageRepository
 import com.lightphone.imessage.data.repository.ThreadRepository
-import java.util.UUID
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.UUID
 
 /**
  * Comprehensive integration tests for Room CRUD operations via repository layer. Tests insert,
@@ -28,7 +28,6 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 @SmallTest
 class RepositoryIntegrationTest {
-
     private lateinit var context: Context
     private lateinit var database: ImessageDatabase
     private lateinit var messageRepository: MessageRepository
@@ -65,27 +64,27 @@ class RepositoryIntegrationTest {
 
         // Setup: Create required thread first
         val thread =
-                ThreadEntity(
-                        id = threadId,
-                        title = "Test Thread",
-                        lastMessage = "",
-                        lastTimestamp = System.currentTimeMillis(),
-                        participantUris = "user@icloud.com|+11234567890"
-                )
+            ThreadEntity(
+                id = threadId,
+                title = "Test Thread",
+                lastMessage = "",
+                lastTimestamp = System.currentTimeMillis(),
+                participantUris = "user@icloud.com|+11234567890",
+            )
         runBlocking { threadRepository.insertThread(thread) }
 
         // Test 1: Insert
         val message =
-                MessageEntity(
-                        id = messageId,
-                        threadId = threadId,
-                        sender = "user@icloud.com",
-                        body = "Hello World",
-                        timestamp = System.currentTimeMillis(),
-                        type = 1,
-                        isOutgoing = false,
-                        status = 1
-                )
+            MessageEntity(
+                id = messageId,
+                threadId = threadId,
+                sender = "user@icloud.com",
+                body = "Hello World",
+                timestamp = System.currentTimeMillis(),
+                type = 1,
+                isOutgoing = false,
+                status = 1,
+            )
 
         val insertResult = runBlocking { messageRepository.insertMessage(message) }
         assertTrue("Insert should succeed", insertResult.isSuccess)
@@ -124,15 +123,15 @@ class RepositoryIntegrationTest {
 
         // Test 1: Insert
         val thread =
-                ThreadEntity(
-                        id = threadId,
-                        title = "Group Chat",
-                        lastMessage = "Last message text",
-                        lastTimestamp = System.currentTimeMillis(),
-                        participantUris = "user1@icloud.com|user2@icloud.com|user3@icloud.com",
-                        unreadCount = 5,
-                        isMuted = false
-                )
+            ThreadEntity(
+                id = threadId,
+                title = "Group Chat",
+                lastMessage = "Last message text",
+                lastTimestamp = System.currentTimeMillis(),
+                participantUris = "user1@icloud.com|user2@icloud.com|user3@icloud.com",
+                unreadCount = 5,
+                isMuted = false,
+            )
 
         val insertResult = runBlocking { threadRepository.insertThread(thread) }
         assertTrue("Insert should succeed", insertResult.isSuccess)
@@ -145,15 +144,15 @@ class RepositoryIntegrationTest {
 
         // Test 3: Update
         val updatedThread =
-                thread.copy(lastMessage = "New last message", unreadCount = 0, isMuted = true)
+            thread.copy(lastMessage = "New last message", unreadCount = 0, isMuted = true)
         val updateResult = runBlocking { threadRepository.updateThread(updatedThread) }
         assertTrue("Update should succeed", updateResult.isSuccess)
 
         val verifyUpdate = runBlocking { threadRepository.getThreadById(threadId).first() }
         assertEquals(
-                "Last message should be updated",
-                "New last message",
-                verifyUpdate?.lastMessage
+            "Last message should be updated",
+            "New last message",
+            verifyUpdate?.lastMessage,
         )
         assertEquals("Unread count should be 0", 0, verifyUpdate?.unreadCount)
         assertTrue("Should be muted", verifyUpdate?.isMuted == true)
@@ -179,12 +178,12 @@ class RepositoryIntegrationTest {
 
         // Test 1: Insert
         val contact =
-                ContactEntity(
-                        id = contactId,
-                        handle = "user@icloud.com",
-                        displayName = "John Doe",
-                        avatarUrl = "https://example.com/avatar.jpg"
-                )
+            ContactEntity(
+                id = contactId,
+                handle = "user@icloud.com",
+                displayName = "John Doe",
+                avatarUrl = "https://example.com/avatar.jpg",
+            )
 
         val insertResult = runBlocking { contactRepository.insertContact(contact) }
         assertTrue("Insert should succeed", insertResult.isSuccess)
@@ -197,19 +196,19 @@ class RepositoryIntegrationTest {
 
         // Test 3: Update
         val updatedContact =
-                contact.copy(
-                        displayName = "Jane Doe",
-                        avatarUrl = "https://example.com/avatar2.jpg"
-                )
+            contact.copy(
+                displayName = "Jane Doe",
+                avatarUrl = "https://example.com/avatar2.jpg",
+            )
         val updateResult = runBlocking { contactRepository.updateContact(updatedContact) }
         assertTrue("Update should succeed", updateResult.isSuccess)
 
         val verifyUpdate = runBlocking { contactRepository.getContactById(contactId).first() }
         assertEquals("Display name should be updated", "Jane Doe", verifyUpdate?.displayName)
         assertEquals(
-                "Avatar URL should be updated",
-                "https://example.com/avatar2.jpg",
-                verifyUpdate?.avatarUrl
+            "Avatar URL should be updated",
+            "https://example.com/avatar2.jpg",
+            verifyUpdate?.avatarUrl,
         )
 
         // Test 4: Delete
@@ -235,16 +234,16 @@ class RepositoryIntegrationTest {
 
         // Attempt to insert message with non-existent thread
         val message =
-                MessageEntity(
-                        id = messageId,
-                        threadId = invalidThreadId,
-                        sender = "user@icloud.com",
-                        body = "Orphan message",
-                        timestamp = System.currentTimeMillis(),
-                        type = 1,
-                        isOutgoing = false,
-                        status = 1
-                )
+            MessageEntity(
+                id = messageId,
+                threadId = invalidThreadId,
+                sender = "user@icloud.com",
+                body = "Orphan message",
+                timestamp = System.currentTimeMillis(),
+                type = 1,
+                isOutgoing = false,
+                status = 1,
+            )
 
         val insertResult = runBlocking { messageRepository.insertMessage(message) }
 
@@ -270,27 +269,27 @@ class RepositoryIntegrationTest {
 
         // Setup: Create thread
         val thread =
-                ThreadEntity(
-                        id = threadId,
-                        title = "Test",
-                        lastMessage = "",
-                        lastTimestamp = System.currentTimeMillis(),
-                        participantUris = "user@icloud.com"
-                )
+            ThreadEntity(
+                id = threadId,
+                title = "Test",
+                lastMessage = "",
+                lastTimestamp = System.currentTimeMillis(),
+                participantUris = "user@icloud.com",
+            )
         runBlocking { threadRepository.insertThread(thread) }
 
         // Create initial message
         val initialMessage =
-                MessageEntity(
-                        id = messageId,
-                        threadId = threadId,
-                        sender = "user@icloud.com",
-                        body = "Initial",
-                        timestamp = System.currentTimeMillis(),
-                        type = 1,
-                        isOutgoing = false,
-                        status = 1
-                )
+            MessageEntity(
+                id = messageId,
+                threadId = threadId,
+                sender = "user@icloud.com",
+                body = "Initial",
+                timestamp = System.currentTimeMillis(),
+                type = 1,
+                isOutgoing = false,
+                status = 1,
+            )
 
         runBlocking { messageRepository.insertMessage(initialMessage) }
 
@@ -332,26 +331,26 @@ class RepositoryIntegrationTest {
 
         // Setup: Create thread
         val thread =
-                ThreadEntity(
-                        id = threadId,
-                        title = "Test",
-                        lastMessage = "",
-                        lastTimestamp = System.currentTimeMillis(),
-                        participantUris = "user@icloud.com"
-                )
+            ThreadEntity(
+                id = threadId,
+                title = "Test",
+                lastMessage = "",
+                lastTimestamp = System.currentTimeMillis(),
+                participantUris = "user@icloud.com",
+            )
         runBlocking { threadRepository.insertThread(thread) }
 
         val message =
-                MessageEntity(
-                        id = messageId,
-                        threadId = threadId,
-                        sender = "user@icloud.com",
-                        body = "Message 1",
-                        timestamp = System.currentTimeMillis(),
-                        type = 1,
-                        isOutgoing = false,
-                        status = 1
-                )
+            MessageEntity(
+                id = messageId,
+                threadId = threadId,
+                sender = "user@icloud.com",
+                body = "Message 1",
+                timestamp = System.currentTimeMillis(),
+                type = 1,
+                isOutgoing = false,
+                status = 1,
+            )
 
         // Insert first time - should succeed
         val firstInsert = runBlocking { messageRepository.insertMessage(message) }

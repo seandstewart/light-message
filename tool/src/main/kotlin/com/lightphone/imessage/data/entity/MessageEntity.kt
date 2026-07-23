@@ -11,29 +11,30 @@ import androidx.room.PrimaryKey
  * Model).
  */
 @Entity(
-        tableName = "messages",
-        foreignKeys =
-                [
-                        ForeignKey(
-                                entity = ThreadEntity::class,
-                                parentColumns = ["id"],
-                                childColumns = ["threadId"],
-                                onDelete = ForeignKey.CASCADE
-                        )]
+    tableName = "messages",
+    foreignKeys =
+        [
+            ForeignKey(
+                entity = ThreadEntity::class,
+                parentColumns = ["id"],
+                childColumns = ["threadId"],
+                onDelete = ForeignKey.CASCADE,
+            ),
+        ],
 )
 data class MessageEntity(
-        @PrimaryKey val id: String,
-        @ColumnInfo(name = "threadId", index = true) val threadId: String,
-        val sender: String,
-        val body: String,
-        val timestamp: Long,
-        val type: Int,
-        val isOutgoing: Boolean,
-        val status: Int,
-        @ColumnInfo(name = "deliveryReceiptAt") val deliveryReceiptAt: Long? = null,
-        @ColumnInfo(name = "readReceiptAt") val readReceiptAt: Long? = null,
-        val attachmentCount: Int = 0,
-        @ColumnInfo(typeAffinity = ColumnInfo.BLOB) val rawEnvelope: ByteArray? = null
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "threadId", index = true) val threadId: String,
+    val sender: String,
+    val body: String,
+    val timestamp: Long,
+    val type: Int,
+    val isOutgoing: Boolean,
+    val status: Int,
+    @ColumnInfo(name = "deliveryReceiptAt") val deliveryReceiptAt: Long? = null,
+    @ColumnInfo(name = "readReceiptAt") val readReceiptAt: Long? = null,
+    val attachmentCount: Int = 0,
+    @ColumnInfo(typeAffinity = ColumnInfo.BLOB) val rawEnvelope: ByteArray? = null,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -53,7 +54,9 @@ data class MessageEntity(
         if (rawEnvelope != null) {
             if (other.rawEnvelope == null) return false
             if (!rawEnvelope.contentEquals(other.rawEnvelope)) return false
-        } else if (other.rawEnvelope != null) return false
+        } else if (other.rawEnvelope != null) {
+            return false
+        }
 
         return true
     }

@@ -56,7 +56,10 @@ interface IMessageRepository {
      * @param deliveryReceiptAt Timestamp when delivery receipt was received
      * @return Result.success(Unit) on success, Result.failure on error
      */
-    suspend fun markAsDelivered(messageId: String, deliveryReceiptAt: Long): Result<Unit>
+    suspend fun markAsDelivered(
+        messageId: String,
+        deliveryReceiptAt: Long,
+    ): Result<Unit>
 
     /**
      * Marks a message as read and sets the read receipt timestamp.
@@ -64,7 +67,10 @@ interface IMessageRepository {
      * @param readReceiptAt Timestamp when read receipt was received
      * @return Result.success(Unit) on success, Result.failure on error
      */
-    suspend fun markAsRead(messageId: String, readReceiptAt: Long): Result<Unit>
+    suspend fun markAsRead(
+        messageId: String,
+        readReceiptAt: Long,
+    ): Result<Unit>
 
     /**
      * Retrieves all undelivered messages (status != DELIVERED).

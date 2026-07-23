@@ -1,5 +1,7 @@
 package com.lightphone.imessage.domain.codec
 
+import org.w3c.dom.Element
+import org.w3c.dom.Node
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
@@ -10,8 +12,6 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Base64
 import javax.xml.parsers.DocumentBuilderFactory
-import org.w3c.dom.Element
-import org.w3c.dom.Node
 
 /**
  * Codec for encoding and decoding Plist values in binary (bplist00) and XML formats. Prefer binary
@@ -20,7 +20,7 @@ import org.w3c.dom.Node
 class PlistCodec {
     private val dateFormatter = DateTimeFormatter.ISO_INSTANT.withZone(ZoneId.of("UTC"))
     private val BPLIST_MAGIC =
-            byteArrayOf(0x62, 0x70, 0x6c, 0x69, 0x73, 0x74, 0x30, 0x30) // "bplist00"
+        byteArrayOf(0x62, 0x70, 0x6c, 0x69, 0x73, 0x74, 0x30, 0x30) // "bplist00"
     private val XML_MAGIC = "<?xml"
 
     companion object {
@@ -160,38 +160,38 @@ class PlistCodec {
     }
 
     private fun encodeObject(
-            value: PlistValue,
-            objectTable: MutableList<ByteArray>,
-            objectMap: MutableMap<Any, Int>
+        value: PlistValue,
+        objectTable: MutableList<ByteArray>,
+        objectMap: MutableMap<Any, Int>,
     ): Int {
         // Check if already encoded (simple caching for immutable values)
         val cacheKey =
-                when (value) {
-                    is PlistString -> "s_" + value.value
-                    is PlistData -> "d_" + value.value.contentHashCode()
-                    is PlistInteger -> "i_" + value.value
-                    is PlistFloat -> "f_" + value.value.toBits()
-                    is PlistBoolean -> "b_" + value.value
-                    PlistNull -> "null"
-                    else -> value.toString()
-                }
+            when (value) {
+                is PlistString -> "s_" + value.value
+                is PlistData -> "d_" + value.value.contentHashCode()
+                is PlistInteger -> "i_" + value.value
+                is PlistFloat -> "f_" + value.value.toBits()
+                is PlistBoolean -> "b_" + value.value
+                PlistNull -> "null"
+                else -> value.toString()
+            }
 
         objectMap[cacheKey]?.let {
             return it
         }
 
         val encoded =
-                when (value) {
-                    PlistNull -> byteArrayOf(0x00)
-                    is PlistBoolean -> if (value.value) byteArrayOf(0x09) else byteArrayOf(0x08)
-                    is PlistInteger -> encodeInteger(value.value)
-                    is PlistFloat -> encodeFloat(value.value)
-                    is PlistString -> encodeString(value.value)
-                    is PlistData -> encodeData(value.value)
-                    is PlistDate -> encodeDate(value.timestamp)
-                    is PlistArray -> encodeArray(value.items, objectTable, objectMap)
-                    is PlistDict -> encodeDict(value.items, objectTable, objectMap)
-                }
+            when (value) {
+                PlistNull -> byteArrayOf(0x00)
+                is PlistBoolean -> if (value.value) byteArrayOf(0x09) else byteArrayOf(0x08)
+                is PlistInteger -> encodeInteger(value.value)
+                is PlistFloat -> encodeFloat(value.value)
+                is PlistString -> encodeString(value.value)
+                is PlistData -> encodeData(value.value)
+                is PlistDate -> encodeDate(value.timestamp)
+                is PlistArray -> encodeArray(value.items, objectTable, objectMap)
+                is PlistDict -> encodeDict(value.items, objectTable, objectMap)
+            }
 
         val index = objectTable.size
         objectTable.add(encoded)
@@ -203,23 +203,23 @@ class PlistCodec {
         return when {
             value >= -128 && value <= 127 -> byteArrayOf(0x10, value.toByte())
             value >= -32768 && value <= 32767 ->
-                    ByteBuffer.allocate(3)
-                            .order(ByteOrder.BIG_ENDIAN)
-                            .put(0x11)
-                            .putShort(value.toShort())
-                            .array()
+                ByteBuffer.allocate(3)
+                    .order(ByteOrder.BIG_ENDIAN)
+                    .put(0x11)
+                    .putShort(value.toShort())
+                    .array()
             value >= -2147483648L && value <= 2147483647L ->
-                    ByteBuffer.allocate(5)
-                            .order(ByteOrder.BIG_ENDIAN)
-                            .put(0x12)
-                            .putInt(value.toInt())
-                            .array()
+                ByteBuffer.allocate(5)
+                    .order(ByteOrder.BIG_ENDIAN)
+                    .put(0x12)
+                    .putInt(value.toInt())
+                    .array()
             else ->
-                    ByteBuffer.allocate(9)
-                            .order(ByteOrder.BIG_ENDIAN)
-                            .put(0x13)
-                            .putLong(value)
-                            .array()
+                ByteBuffer.allocate(9)
+                    .order(ByteOrder.BIG_ENDIAN)
+                    .put(0x13)
+                    .putLong(value)
+                    .array()
         }
     }
 
@@ -251,16 +251,16 @@ class PlistCodec {
     private fun encodeDate(timestamp: Long): ByteArray {
         val seconds = timestamp.toDouble()
         return ByteBuffer.allocate(9)
-                .order(ByteOrder.BIG_ENDIAN)
-                .put(0x33)
-                .putDouble(seconds)
-                .array()
+            .order(ByteOrder.BIG_ENDIAN)
+            .put(0x33)
+            .putDouble(seconds)
+            .array()
     }
 
     private fun encodeArray(
-            items: List<PlistValue>,
-            objectTable: MutableList<ByteArray>,
-            objectMap: MutableMap<Any, Int>
+        items: List<PlistValue>,
+        objectTable: MutableList<ByteArray>,
+        objectMap: MutableMap<Any, Int>,
     ): ByteArray {
         val indices = mutableListOf<Int>()
         for (item in items) {
@@ -283,9 +283,9 @@ class PlistCodec {
     }
 
     private fun encodeDict(
-            items: Map<String, PlistValue>,
-            objectTable: MutableList<ByteArray>,
-            objectMap: MutableMap<Any, Int>
+        items: Map<String, PlistValue>,
+        objectTable: MutableList<ByteArray>,
+        objectMap: MutableMap<Any, Int>,
     ): ByteArray {
         val keys = items.keys.sorted()
         val length = keys.size
@@ -323,10 +323,10 @@ class PlistCodec {
             byteArrayOf(0xf0.toByte(), length.toByte())
         } else if (length <= 0xffff) {
             ByteBuffer.allocate(3)
-                    .order(ByteOrder.BIG_ENDIAN)
-                    .put(0xf1)
-                    .putShort(length.toShort())
-                    .array()
+                .order(ByteOrder.BIG_ENDIAN)
+                .put(0xf1)
+                .putShort(length.toShort())
+                .array()
         } else {
             ByteBuffer.allocate(5).order(ByteOrder.BIG_ENDIAN).put(0xf2).putInt(length).array()
         }
@@ -396,7 +396,7 @@ class PlistCodec {
             }
 
             val buffer =
-                    ByteBuffer.wrap(bytes, offset, bytes.size - offset).order(ByteOrder.BIG_ENDIAN)
+                ByteBuffer.wrap(bytes, offset, bytes.size - offset).order(ByteOrder.BIG_ENDIAN)
 
             val obj = parseObjectInternal(buffer, offsetTable, objectRefSize)
             objectCache[index] = obj
@@ -408,9 +408,9 @@ class PlistCodec {
     }
 
     private fun parseObjectInternal(
-            buffer: ByteBuffer,
-            objectTable: List<Long>,
-            objectRefSize: Int
+        buffer: ByteBuffer,
+        objectTable: List<Long>,
+        objectRefSize: Int,
     ): PlistValue {
         val marker = buffer.get().toInt() and 0xff
         val type = (marker and 0xf0) shr 4
@@ -422,22 +422,22 @@ class PlistCodec {
             marker == 0x09 -> PlistBoolean(true)
             marker >= 0x10 && marker <= 0x13 -> {
                 val value =
-                        when (info) {
-                            0x0 -> buffer.get().toLong()
-                            0x1 -> buffer.short.toLong()
-                            0x2 -> buffer.int.toLong()
-                            0x3 -> buffer.long
-                            else -> throw IOException("Invalid integer type")
-                        }
+                    when (info) {
+                        0x0 -> buffer.get().toLong()
+                        0x1 -> buffer.short.toLong()
+                        0x2 -> buffer.int.toLong()
+                        0x3 -> buffer.long
+                        else -> throw IOException("Invalid integer type")
+                    }
                 PlistInteger(value)
             }
             marker >= 0x20 && marker <= 0x23 -> {
                 val value =
-                        when (info) {
-                            0x2 -> buffer.float.toDouble()
-                            0x3 -> buffer.double
-                            else -> throw IOException("Invalid float type")
-                        }
+                    when (info) {
+                        0x2 -> buffer.float.toDouble()
+                        0x3 -> buffer.double
+                        else -> throw IOException("Invalid float type")
+                    }
                 PlistFloat(value)
             }
             marker == 0x33 -> {
@@ -484,7 +484,10 @@ class PlistCodec {
         }
     }
 
-    private fun readLength(buffer: ByteBuffer, info: Int): Int {
+    private fun readLength(
+        buffer: ByteBuffer,
+        info: Int,
+    ): Int {
         return if (info < 14) {
             info
         } else if (info == 14) {
@@ -502,7 +505,10 @@ class PlistCodec {
         }
     }
 
-    private fun readObjectRef(buffer: ByteBuffer, size: Int): Int {
+    private fun readObjectRef(
+        buffer: ByteBuffer,
+        size: Int,
+    ): Int {
         return when (size) {
             1 -> buffer.get().toInt() and 0xff
             2 -> buffer.short.toInt() and 0xffff
@@ -512,7 +518,11 @@ class PlistCodec {
         }
     }
 
-    private fun readOffset(bytes: ByteArray, offset: Int, size: Int): Long {
+    private fun readOffset(
+        bytes: ByteArray,
+        offset: Int,
+        size: Int,
+    ): Long {
         val buffer = ByteBuffer.wrap(bytes, offset, size).order(ByteOrder.BIG_ENDIAN)
         return when (size) {
             1 -> (bytes[offset].toInt() and 0xff).toLong()

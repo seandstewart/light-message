@@ -20,7 +20,8 @@ interface MessageDao {
 
     @Delete suspend fun delete(message: MessageEntity)
 
-    @Query("DELETE FROM messages WHERE id = :messageId") suspend fun deleteById(messageId: String)
+    @Query("DELETE FROM messages WHERE id = :messageId")
+    suspend fun deleteById(messageId: String)
 
     @Query("SELECT * FROM messages WHERE id = :messageId")
     fun getById(messageId: String): Flow<MessageEntity?>
@@ -28,7 +29,8 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE threadId = :threadId ORDER BY timestamp DESC")
     fun getByThreadId(threadId: String): Flow<List<MessageEntity>>
 
-    @Query("SELECT * FROM messages ORDER BY timestamp DESC") fun getAll(): Flow<List<MessageEntity>>
+    @Query("SELECT * FROM messages ORDER BY timestamp DESC")
+    fun getAll(): Flow<List<MessageEntity>>
 
     @Query("SELECT * FROM messages WHERE status != 2 ORDER BY timestamp ASC")
     fun getUndelivered(): Flow<List<MessageEntity>>
@@ -37,10 +39,16 @@ interface MessageDao {
     fun getUnread(): Flow<List<MessageEntity>>
 
     @Query(
-            "UPDATE messages SET status = 2, deliveryReceiptAt = :deliveryReceiptAt WHERE id = :messageId"
+        "UPDATE messages SET status = 2, deliveryReceiptAt = :deliveryReceiptAt WHERE id = :messageId",
     )
-    suspend fun markDelivered(messageId: String, deliveryReceiptAt: Long)
+    suspend fun markDelivered(
+        messageId: String,
+        deliveryReceiptAt: Long,
+    )
 
     @Query("UPDATE messages SET readReceiptAt = :readReceiptAt WHERE id = :messageId")
-    suspend fun markRead(messageId: String, readReceiptAt: Long)
+    suspend fun markRead(
+        messageId: String,
+        readReceiptAt: Long,
+    )
 }

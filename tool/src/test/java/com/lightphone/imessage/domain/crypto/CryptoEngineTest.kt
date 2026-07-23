@@ -1,11 +1,11 @@
 package com.lightphone.imessage.domain.crypto
 
+import org.junit.Assert.*
+import org.junit.Test
 import java.security.KeyStore
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import java.util.Date
-import org.junit.Assert.*
-import org.junit.Test
 
 /**
  * Comprehensive unit tests for CryptoEngine. Covers AES-256-GCM encryption/decryption,
@@ -44,18 +44,18 @@ class CryptoEngineTest {
         assertEquals("Auth tag must be 16 bytes", 16, encryptResult.authTag.size)
 
         val decryptResult =
-                cryptoEngine.aesGcmDecrypt(
-                        encryptResult.ciphertext,
-                        key,
-                        encryptResult.iv,
-                        encryptResult.authTag,
-                        null
-                )
+            cryptoEngine.aesGcmDecrypt(
+                encryptResult.ciphertext,
+                key,
+                encryptResult.iv,
+                encryptResult.authTag,
+                null,
+            )
         assertTrue("Decryption must succeed", decryptResult.isSuccess)
         assertArrayEquals(
-                "Decrypted plaintext must match original",
-                plaintext,
-                decryptResult.getOrNull()
+            "Decrypted plaintext must match original",
+            plaintext,
+            decryptResult.getOrNull(),
         )
     }
 
@@ -66,19 +66,19 @@ class CryptoEngineTest {
 
         val encryptResult = cryptoEngine.aesGcmEncrypt(plaintext, key, null)
         val decryptResult =
-                cryptoEngine.aesGcmDecrypt(
-                        encryptResult.ciphertext,
-                        key,
-                        encryptResult.iv,
-                        encryptResult.authTag,
-                        null
-                )
+            cryptoEngine.aesGcmDecrypt(
+                encryptResult.ciphertext,
+                key,
+                encryptResult.iv,
+                encryptResult.authTag,
+                null,
+            )
 
         assertTrue("Decryption must succeed", decryptResult.isSuccess)
         assertArrayEquals(
-                "Decrypted plaintext must match original",
-                plaintext,
-                decryptResult.getOrNull()
+            "Decrypted plaintext must match original",
+            plaintext,
+            decryptResult.getOrNull(),
         )
     }
 
@@ -89,13 +89,13 @@ class CryptoEngineTest {
 
         val encryptResult = cryptoEngine.aesGcmEncrypt(plaintext, key, null)
         val decryptResult =
-                cryptoEngine.aesGcmDecrypt(
-                        encryptResult.ciphertext,
-                        key,
-                        encryptResult.iv,
-                        encryptResult.authTag,
-                        null
-                )
+            cryptoEngine.aesGcmDecrypt(
+                encryptResult.ciphertext,
+                key,
+                encryptResult.iv,
+                encryptResult.authTag,
+                null,
+            )
 
         assertTrue("Decryption of empty plaintext must succeed", decryptResult.isSuccess)
         assertEquals("Decrypted empty plaintext must match", 0, decryptResult.getOrNull()?.size)
@@ -108,19 +108,19 @@ class CryptoEngineTest {
 
         val encryptResult = cryptoEngine.aesGcmEncrypt(plaintext, key, null)
         val decryptResult =
-                cryptoEngine.aesGcmDecrypt(
-                        encryptResult.ciphertext,
-                        key,
-                        encryptResult.iv,
-                        encryptResult.authTag,
-                        null
-                )
+            cryptoEngine.aesGcmDecrypt(
+                encryptResult.ciphertext,
+                key,
+                encryptResult.iv,
+                encryptResult.authTag,
+                null,
+            )
 
         assertTrue("Decryption of large plaintext must succeed", decryptResult.isSuccess)
         assertArrayEquals(
-                "Decrypted large plaintext must match original",
-                plaintext,
-                decryptResult.getOrNull()
+            "Decrypted large plaintext must match original",
+            plaintext,
+            decryptResult.getOrNull(),
         )
     }
 
@@ -132,19 +132,19 @@ class CryptoEngineTest {
 
         val encryptResult = cryptoEngine.aesGcmEncrypt(plaintext, key, aad)
         val decryptResult =
-                cryptoEngine.aesGcmDecrypt(
-                        encryptResult.ciphertext,
-                        key,
-                        encryptResult.iv,
-                        encryptResult.authTag,
-                        aad
-                )
+            cryptoEngine.aesGcmDecrypt(
+                encryptResult.ciphertext,
+                key,
+                encryptResult.iv,
+                encryptResult.authTag,
+                aad,
+            )
 
         assertTrue("Decryption with matching AAD must succeed", decryptResult.isSuccess)
         assertArrayEquals(
-                "Decrypted plaintext must match original",
-                plaintext,
-                decryptResult.getOrNull()
+            "Decrypted plaintext must match original",
+            plaintext,
+            decryptResult.getOrNull(),
         )
     }
 
@@ -162,13 +162,13 @@ class CryptoEngineTest {
         corruptedTag[0] = (corruptedTag[0].toInt() xor 0xFF).toByte()
 
         val decryptResult =
-                cryptoEngine.aesGcmDecrypt(
-                        encryptResult.ciphertext,
-                        key,
-                        encryptResult.iv,
-                        corruptedTag,
-                        null
-                )
+            cryptoEngine.aesGcmDecrypt(
+                encryptResult.ciphertext,
+                key,
+                encryptResult.iv,
+                corruptedTag,
+                null,
+            )
 
         assertTrue("Decryption with corrupted tag must fail", decryptResult.isFailure)
     }
@@ -182,13 +182,13 @@ class CryptoEngineTest {
 
         val encryptResult = cryptoEngine.aesGcmEncrypt(plaintext, key, correctAAD)
         val decryptResult =
-                cryptoEngine.aesGcmDecrypt(
-                        encryptResult.ciphertext,
-                        key,
-                        encryptResult.iv,
-                        encryptResult.authTag,
-                        wrongAAD
-                )
+            cryptoEngine.aesGcmDecrypt(
+                encryptResult.ciphertext,
+                key,
+                encryptResult.iv,
+                encryptResult.authTag,
+                wrongAAD,
+            )
 
         assertTrue("Decryption with wrong AAD must fail", decryptResult.isFailure)
     }
@@ -207,13 +207,13 @@ class CryptoEngineTest {
         }
 
         val decryptResult =
-                cryptoEngine.aesGcmDecrypt(
-                        corruptedCiphertext,
-                        key,
-                        encryptResult.iv,
-                        encryptResult.authTag,
-                        null
-                )
+            cryptoEngine.aesGcmDecrypt(
+                corruptedCiphertext,
+                key,
+                encryptResult.iv,
+                encryptResult.authTag,
+                null,
+            )
 
         assertTrue("Decryption with corrupted ciphertext must fail", decryptResult.isFailure)
     }
@@ -230,13 +230,13 @@ class CryptoEngineTest {
         corruptedIV[0] = (corruptedIV[0].toInt() xor 0xFF).toByte()
 
         val decryptResult =
-                cryptoEngine.aesGcmDecrypt(
-                        encryptResult.ciphertext,
-                        key,
-                        corruptedIV,
-                        encryptResult.authTag,
-                        null
-                )
+            cryptoEngine.aesGcmDecrypt(
+                encryptResult.ciphertext,
+                key,
+                corruptedIV,
+                encryptResult.authTag,
+                null,
+            )
 
         assertTrue("Decryption with corrupted IV must fail", decryptResult.isFailure)
     }
@@ -261,9 +261,9 @@ class CryptoEngineTest {
         val unwrappedKey = unwrapResult.getOrNull()
         assertNotNull("Unwrapped key must not be null", unwrappedKey)
         assertArrayEquals(
-                "Unwrapped key must match original",
-                aesKey.encoded,
-                unwrappedKey?.encoded
+            "Unwrapped key must match original",
+            aesKey.encoded,
+            unwrappedKey?.encoded,
         )
     }
 
@@ -432,8 +432,8 @@ class CryptoEngineTest {
 
         // ECDSA signatures are non-deterministic (random nonce), so signatures should differ
         assertFalse(
-                "Multiple signatures of same data should differ (ECDSA uses random nonce)",
-                signature1.contentEquals(signature2)
+            "Multiple signatures of same data should differ (ECDSA uses random nonce)",
+            signature1.contentEquals(signature2),
         )
 
         val cert = createSelfSignedEcdsaCertificate(publicKey)
@@ -451,9 +451,7 @@ class CryptoEngineTest {
      * Creates a self-signed X509 certificate for testing ECDSA verification. Note: This is a
      * simplified approach for testing; production code should use proper certificate management.
      */
-    private fun createSelfSignedEcdsaCertificate(
-            publicKey: java.security.PublicKey
-    ): X509Certificate {
+    private fun createSelfSignedEcdsaCertificate(publicKey: java.security.PublicKey): X509Certificate {
         try {
             // For testing, we'll use a mock certificate approach
             // In production, this would be a real X509 certificate
@@ -485,26 +483,26 @@ class CryptoEngineTest {
 
             // Set version
             certBuilder.set(
-                    sun.security.x509.X509CertInfo.VERSION,
-                    sun.security.x509.CertificateVersion(sun.security.x509.CertificateVersion.V3)
+                sun.security.x509.X509CertInfo.VERSION,
+                sun.security.x509.CertificateVersion(sun.security.x509.CertificateVersion.V3),
             )
 
             // Set serial number
             certBuilder.set(
-                    sun.security.x509.X509CertInfo.SERIAL_NUMBER,
-                    sun.security.x509.CertificateSerialNumber(
-                            (System.currentTimeMillis() / 1000).toInt()
-                    )
+                sun.security.x509.X509CertInfo.SERIAL_NUMBER,
+                sun.security.x509.CertificateSerialNumber(
+                    (System.currentTimeMillis() / 1000).toInt(),
+                ),
             )
 
             // Set algorithm ID
             val algorithm =
-                    sun.security.x509.AlgorithmId(
-                            sun.security.util.ObjectIdentifier("1.2.840.10045.4.3.2")
-                    )
+                sun.security.x509.AlgorithmId(
+                    sun.security.util.ObjectIdentifier("1.2.840.10045.4.3.2"),
+                )
             certBuilder.set(
-                    sun.security.x509.X509CertInfo.ALGORITHM_ID,
-                    sun.security.x509.CertificateAlgorithmId(algorithm)
+                sun.security.x509.X509CertInfo.ALGORITHM_ID,
+                sun.security.x509.CertificateAlgorithmId(algorithm),
             )
 
             // Set issuer (self-signed)
@@ -516,17 +514,17 @@ class CryptoEngineTest {
 
             // Set public key
             certBuilder.set(
-                    sun.security.x509.X509CertInfo.KEY,
-                    sun.security.x509.CertificateX509Key(publicKey)
+                sun.security.x509.X509CertInfo.KEY,
+                sun.security.x509.CertificateX509Key(publicKey),
             )
 
             // Set validity
             val now = Date()
             val validity =
-                    sun.security.x509.CertificateValidity(
-                            now,
-                            Date(now.time + 365 * 24 * 60 * 60 * 1000)
-                    )
+                sun.security.x509.CertificateValidity(
+                    now,
+                    Date(now.time + 365 * 24 * 60 * 60 * 1000),
+                )
             certBuilder.set(sun.security.x509.X509CertInfo.VALIDITY, validity)
 
             // Create certificate

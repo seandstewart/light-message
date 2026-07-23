@@ -20,7 +20,10 @@ interface INativeServiceClient {
      * @param email Apple ID email (for identification)
      * @return Result containing device certificate/ID or error details
      */
-    suspend fun registerHardware(sessionToken: String, email: String): Result<HardwareInfo>
+    suspend fun registerHardware(
+        sessionToken: String,
+        email: String,
+    ): Result<HardwareInfo>
 
     /**
      * Polls for activation status from Apple's servers. Checks if the device certificate has been
@@ -32,9 +35,9 @@ interface INativeServiceClient {
      * @return Result containing activation confirmation or timeout/error
      */
     suspend fun pollActivationStatus(
-            deviceId: String,
-            maxAttempts: Int = 30,
-            pollIntervalMs: Long = 1000
+        deviceId: String,
+        maxAttempts: Int = 30,
+        pollIntervalMs: Long = 1000,
     ): Result<ActivationStatus>
 }
 

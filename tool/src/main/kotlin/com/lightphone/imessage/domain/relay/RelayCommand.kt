@@ -12,9 +12,9 @@ sealed class RelayCommand {
      * @param envelope Encrypted message envelope (output from MessageCodec.encodeEnvelope)
      */
     data class SendMessage(
-            val messageId: MessageId,
-            val recipientUri: String,
-            val envelope: ByteArray
+        val messageId: MessageId,
+        val recipientUri: String,
+        val envelope: ByteArray,
     ) : RelayCommand() {
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
@@ -59,9 +59,9 @@ data class MessageId(val value: String)
  * @param messageId Unique identifier for tracking
  */
 data class OutgoingMessage(
-        val recipient: String,
-        val payload: ByteArray,
-        val messageId: MessageId
+    val recipient: String,
+    val payload: ByteArray,
+    val messageId: MessageId,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true

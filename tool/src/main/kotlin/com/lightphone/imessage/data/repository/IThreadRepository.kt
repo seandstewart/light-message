@@ -64,8 +64,8 @@ interface IThreadRepository {
      * @return Result.success(Unit) on success, Result.failure on error
      */
     suspend fun updateLastMessage(
-            threadId: String,
-            lastMessage: String,
-            timestamp: Long
+        threadId: String,
+        lastMessage: String,
+        timestamp: Long,
     ): Result<Unit>
 }

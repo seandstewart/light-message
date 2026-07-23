@@ -13,9 +13,9 @@ package com.lightphone.imessage.domain.relay
  * - Attempt 5+: 32s (capped)
  */
 data class ReconnectPolicy(
-        val maxAttempts: Int = 5,
-        val baseDelayMs: Long = 1000, // 1s initial backoff
-        val maxDelayMs: Long = 32000 // 32s cap
+    val maxAttempts: Int = 5,
+    val baseDelayMs: Long = 1000, // 1s initial backoff
+    val maxDelayMs: Long = 32000, // 32s cap
 ) {
     /**
      * Compute delay in milliseconds for a given retry attempt. Uses formula: baseDelayMs * (2 ^

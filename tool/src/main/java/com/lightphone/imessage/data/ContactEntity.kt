@@ -13,8 +13,8 @@ import androidx.room.PrimaryKey
  */
 @Entity(tableName = "contacts", indices = [Index("handle", unique = true)])
 data class ContactEntity(
-        @PrimaryKey val id: String,
-        val handle: String,
-        val displayName: String,
-        val avatarUrl: String? = null
+    @PrimaryKey val id: String,
+    val handle: String,
+    val displayName: String,
+    val avatarUrl: String? = null,
 )

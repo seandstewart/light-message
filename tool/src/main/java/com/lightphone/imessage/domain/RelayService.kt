@@ -3,9 +3,7 @@ package com.lightphone.imessage.domain
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import okhttp3.WebSocket
-import okhttp3.WebSocketListener
 
 /**
  * HTTP/WebSocket client for relay server communication.
@@ -33,5 +31,5 @@ data class Message(
     val id: String,
     val senderId: String,
     val text: String,
-    val timestamp: Long
+    val timestamp: Long,
 )

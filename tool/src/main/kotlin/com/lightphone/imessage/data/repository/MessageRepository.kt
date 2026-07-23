@@ -15,34 +15,34 @@ class MessageRepository(private val database: ImessageDatabase) : IMessageReposi
     private val messageDao = database.messageDao()
 
     override suspend fun insertMessage(message: MessageEntity): Result<Unit> =
-            withContext(Dispatchers.IO) {
-                return@withContext try {
-                    messageDao.insert(message)
-                    Result.success(Unit)
-                } catch (e: Exception) {
-                    Result.failure(e)
-                }
+        withContext(Dispatchers.IO) {
+            return@withContext try {
+                messageDao.insert(message)
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Result.failure(e)
             }
+        }
 
     override suspend fun updateMessage(message: MessageEntity): Result<Unit> =
-            withContext(Dispatchers.IO) {
-                return@withContext try {
-                    messageDao.update(message)
-                    Result.success(Unit)
-                } catch (e: Exception) {
-                    Result.failure(e)
-                }
+        withContext(Dispatchers.IO) {
+            return@withContext try {
+                messageDao.update(message)
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Result.failure(e)
             }
+        }
 
     override suspend fun deleteMessage(messageId: String): Result<Unit> =
-            withContext(Dispatchers.IO) {
-                return@withContext try {
-                    messageDao.deleteById(messageId)
-                    Result.success(Unit)
-                } catch (e: Exception) {
-                    Result.failure(e)
-                }
+        withContext(Dispatchers.IO) {
+            return@withContext try {
+                messageDao.deleteById(messageId)
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Result.failure(e)
             }
+        }
 
     override fun getMessageById(messageId: String): Flow<MessageEntity?> {
         return messageDao.getById(messageId)
@@ -56,25 +56,31 @@ class MessageRepository(private val database: ImessageDatabase) : IMessageReposi
         return messageDao.getAll()
     }
 
-    override suspend fun markAsDelivered(messageId: String, deliveryReceiptAt: Long): Result<Unit> =
-            withContext(Dispatchers.IO) {
-                return@withContext try {
-                    messageDao.markDelivered(messageId, deliveryReceiptAt)
-                    Result.success(Unit)
-                } catch (e: Exception) {
-                    Result.failure(e)
-                }
+    override suspend fun markAsDelivered(
+        messageId: String,
+        deliveryReceiptAt: Long,
+    ): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            return@withContext try {
+                messageDao.markDelivered(messageId, deliveryReceiptAt)
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Result.failure(e)
             }
+        }
 
-    override suspend fun markAsRead(messageId: String, readReceiptAt: Long): Result<Unit> =
-            withContext(Dispatchers.IO) {
-                return@withContext try {
-                    messageDao.markRead(messageId, readReceiptAt)
-                    Result.success(Unit)
-                } catch (e: Exception) {
-                    Result.failure(e)
-                }
+    override suspend fun markAsRead(
+        messageId: String,
+        readReceiptAt: Long,
+    ): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            return@withContext try {
+                messageDao.markRead(messageId, readReceiptAt)
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Result.failure(e)
             }
+        }
 
     override fun getUndeliveredMessages(): Flow<List<MessageEntity>> {
         return messageDao.getUndelivered()

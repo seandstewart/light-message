@@ -13,26 +13,27 @@ import androidx.room.PrimaryKey
  * - PK id (UUIDv4)
  */
 @Entity(
-        tableName = "attachments",
-        foreignKeys =
-                [
-                        ForeignKey(
-                                entity = MessageEntity::class,
-                                parentColumns = ["id"],
-                                childColumns = ["messageId"],
-                                onDelete = ForeignKey.CASCADE
-                        )],
-        indices = [Index("messageId")]
+    tableName = "attachments",
+    foreignKeys =
+        [
+            ForeignKey(
+                entity = MessageEntity::class,
+                parentColumns = ["id"],
+                childColumns = ["messageId"],
+                onDelete = ForeignKey.CASCADE,
+            ),
+        ],
+    indices = [Index("messageId")],
 )
 data class AttachmentEntity(
-        @PrimaryKey val id: String,
-        val messageId: String,
-        val url: String,
-        val encryptionKey: ByteArray,
-        val size: Long,
-        val mimeType: String,
-        val fileName: String,
-        val status: Int
+    @PrimaryKey val id: String,
+    val messageId: String,
+    val url: String,
+    val encryptionKey: ByteArray,
+    val size: Long,
+    val mimeType: String,
+    val fileName: String,
+    val status: Int,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true

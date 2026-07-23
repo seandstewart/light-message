@@ -14,10 +14,13 @@ class AppleIdAuth {
         AwaitingTwoFactor,
         ProvisioningHardware,
         AuthenticationFailed,
-        SessionEstablished
+        SessionEstablished,
     }
 
-    fun authenticate(appleId: String, password: String): Flow<State> {
+    fun authenticate(
+        appleId: String,
+        password: String,
+    ): Flow<State> {
         // TODO: Implement login flow with relay retry (3x, backoff)
         // TODO: Handle 2FA challenge
         // TODO: Provision hardware info to relay

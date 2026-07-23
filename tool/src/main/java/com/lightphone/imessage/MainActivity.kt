@@ -5,10 +5,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import com.lightphone.imessage.ui.theme.LightMessageTheme
 import com.lightphone.imessage.ui.screens.AppNavigation
+import com.lightphone.imessage.ui.theme.LightMessageTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -17,7 +16,7 @@ class MainActivity : ComponentActivity() {
             LightMessageTheme {
                 Surface(
                     modifier = Modifier,
-                    color = MaterialTheme.colorScheme.background
+                    color = MaterialTheme.colorScheme.background,
                 ) {
                     AppNavigation()
                 }

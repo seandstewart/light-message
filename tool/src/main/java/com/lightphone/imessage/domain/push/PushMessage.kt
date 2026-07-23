@@ -12,10 +12,10 @@ package com.lightphone.imessage.domain.push
  * @param envelope Base64-decoded encrypted message envelope (AES-GCM encrypted)
  */
 data class PushMessage(
-        val messageId: String,
-        val sender: String,
-        val timestamp: Long,
-        val envelope: ByteArray
+    val messageId: String,
+    val sender: String,
+    val timestamp: Long,
+    val envelope: ByteArray,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true

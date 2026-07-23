@@ -15,8 +15,6 @@ import com.lightphone.imessage.data.ThreadEntity
 import com.lightphone.imessage.data.repository.MessageRepository
 import com.lightphone.imessage.domain.relay.IRelayService
 import com.lightphone.imessage.domain.relay.RelayConnectionState
-import java.util.UUID
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.runBlocking
@@ -28,6 +26,8 @@ import org.junit.runner.RunWith
 import org.mockito.Mock
 import org.mockito.MockitoAnnotations
 import org.mockito.kotlin.whenever
+import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 /**
  * Comprehensive integration tests for background sync scheduler. Tests periodic scheduling, health
@@ -38,7 +38,6 @@ import org.mockito.kotlin.whenever
  */
 @RunWith(AndroidJUnit4::class)
 class BackgroundSyncIntegrationTest {
-
     private lateinit var context: Context
     private lateinit var database: ImessageDatabase
     private lateinit var messageRepository: MessageRepository
@@ -76,33 +75,34 @@ class BackgroundSyncIntegrationTest {
     fun testPeriodicScheduling() {
         // Step 1: Schedule sync work with 15-minute interval
         val syncWorkRequest =
-                PeriodicWorkRequestBuilder<BackgroundSyncWorker>(15, TimeUnit.MINUTES)
-                        .setConstraints(
-                                Constraints.Builder()
-                                        .setRequiredNetworkType(NetworkType.CONNECTED)
-                                        .build()
-                        )
-                        .setBackoffPolicy(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.MINUTES)
-                        .build()
+            PeriodicWorkRequestBuilder<BackgroundSyncWorker>(15, TimeUnit.MINUTES)
+                .setConstraints(
+                    Constraints.Builder()
+                        .setRequiredNetworkType(NetworkType.CONNECTED)
+                        .build(),
+                )
+                .setBackoffPolicy(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.MINUTES)
+                .build()
 
         workManager.enqueueUniquePeriodicWork(
-                "background_sync",
-                androidx.work.ExistingPeriodicWorkPolicy.KEEP,
-                syncWorkRequest
+            "background_sync",
+            androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+            syncWorkRequest,
         )
 
         // Step 2: Verify work is scheduled
-        val workInfo = runBlocking {
-            workManager.getWorkInfosForUniqueWork("background_sync").get()
-        }
+        val workInfo =
+            runBlocking {
+                workManager.getWorkInfosForUniqueWork("background_sync").get()
+            }
 
         assertFalse("Work should be scheduled", workInfo.isEmpty())
 
         val workRequest = workInfo.first()
         assertEquals(
-                "Work should not be finished",
-                androidx.work.WorkInfo.State.ENQUEUED,
-                workRequest.state
+            "Work should not be finished",
+            androidx.work.WorkInfo.State.ENQUEUED,
+            workRequest.state,
         )
 
         // Step 3: Verify 15-minute interval (check via WorkRequest metadata)
@@ -122,15 +122,15 @@ class BackgroundSyncIntegrationTest {
     fun testHealthCheck() {
         // Setup: Mock relay service initially disconnected
         val connectionState =
-                MutableStateFlow<RelayConnectionState>(RelayConnectionState.Disconnected)
+            MutableStateFlow<RelayConnectionState>(RelayConnectionState.Disconnected)
         whenever(mockRelayService.connectionState)
-                .thenReturn(connectionState as StateFlow<RelayConnectionState>)
+            .thenReturn(connectionState as StateFlow<RelayConnectionState>)
 
         // Step 1: Verify initial state is disconnected
         assertEquals(
-                "Initial state should be Disconnected",
-                RelayConnectionState.Disconnected,
-                mockRelayService.connectionState.value
+            "Initial state should be Disconnected",
+            RelayConnectionState.Disconnected,
+            mockRelayService.connectionState.value,
         )
 
         // Step 2: Simulate reconnect
@@ -138,9 +138,9 @@ class BackgroundSyncIntegrationTest {
 
         // Step 3: Verify state changed to connected
         assertEquals(
-                "State should be Connected after reconnect",
-                RelayConnectionState.Connected,
-                mockRelayService.connectionState.value
+            "State should be Connected after reconnect",
+            RelayConnectionState.Connected,
+            mockRelayService.connectionState.value,
         )
     }
 
@@ -157,26 +157,26 @@ class BackgroundSyncIntegrationTest {
         // Setup: Create thread and undelivered message
         val threadId = UUID.randomUUID().toString()
         val thread =
-                ThreadEntity(
-                        id = threadId,
-                        title = "Test Thread",
-                        lastMessage = "Hi",
-                        lastTimestamp = System.currentTimeMillis(),
-                        participantUris = "user@icloud.com|+11234567890"
-                )
+            ThreadEntity(
+                id = threadId,
+                title = "Test Thread",
+                lastMessage = "Hi",
+                lastTimestamp = System.currentTimeMillis(),
+                participantUris = "user@icloud.com|+11234567890",
+            )
 
         val messageId = UUID.randomUUID().toString()
         val message =
-                MessageEntity(
-                        id = messageId,
-                        threadId = threadId,
-                        sender = "+11234567890",
-                        body = "Test message",
-                        timestamp = System.currentTimeMillis(),
-                        type = 1,
-                        isOutgoing = true,
-                        status = 0 // UNDELIVERED
-                )
+            MessageEntity(
+                id = messageId,
+                threadId = threadId,
+                sender = "+11234567890",
+                body = "Test message",
+                timestamp = System.currentTimeMillis(),
+                type = 1,
+                isOutgoing = true,
+                status = 0, // UNDELIVERED
+            )
 
         // Step 1: Insert message into database
         runBlocking {
@@ -199,9 +199,9 @@ class BackgroundSyncIntegrationTest {
 
         assertNotNull("Message should exist", updatedMessage)
         assertEquals(
-                "Delivery receipt timestamp should be set",
-                deliveryTime,
-                updatedMessage?.deliveryReceiptAt
+            "Delivery receipt timestamp should be set",
+            deliveryTime,
+            updatedMessage?.deliveryReceiptAt,
         )
     }
 
@@ -237,24 +237,24 @@ class BackgroundSyncIntegrationTest {
     fun testNetworkFailureRetry() {
         // Setup: Mock relay service with network error
         whenever(mockRelayService.connectionState)
-                .thenReturn(
-                        MutableStateFlow<RelayConnectionState>(RelayConnectionState.Disconnected) as
-                                StateFlow<RelayConnectionState>
-                )
+            .thenReturn(
+                MutableStateFlow<RelayConnectionState>(RelayConnectionState.Disconnected) as
+                    StateFlow<RelayConnectionState>,
+            )
 
         // Step 1: Simulate network error during sync check
         val connectionState = mockRelayService.connectionState.value
         assertTrue(
-                "Connection should be unavailable",
-                connectionState is RelayConnectionState.Disconnected
+            "Connection should be unavailable",
+            connectionState is RelayConnectionState.Disconnected,
         )
 
         // Step 2: In BackgroundSyncWorker, network errors should return Result.retry()
         // This would be verified in an actual doWork() execution
         // For unit test, we verify the condition that triggers retry
         val isNetworkError =
-                connectionState is RelayConnectionState.Disconnected ||
-                        connectionState is RelayConnectionState.Failed
+            connectionState is RelayConnectionState.Disconnected ||
+                connectionState is RelayConnectionState.Failed
 
         assertTrue("Network error condition should trigger retry", isNetworkError)
     }
@@ -275,16 +275,16 @@ class BackgroundSyncIntegrationTest {
 
         // Create message without corresponding thread (foreign key violation)
         val orphanMessage =
-                MessageEntity(
-                        id = messageId,
-                        threadId = threadId, // This thread doesn't exist
-                        sender = "user@icloud.com",
-                        body = "Orphan message",
-                        timestamp = System.currentTimeMillis(),
-                        type = 1,
-                        isOutgoing = false,
-                        status = 1
-                )
+            MessageEntity(
+                id = messageId,
+                threadId = threadId, // This thread doesn't exist
+                sender = "user@icloud.com",
+                body = "Orphan message",
+                timestamp = System.currentTimeMillis(),
+                type = 1,
+                isOutgoing = false,
+                status = 1,
+            )
 
         // Step 1: Attempt to insert orphan message
         val insertResult = runBlocking { messageRepository.insertMessage(orphanMessage) }

@@ -26,7 +26,10 @@ interface IAuthManager {
      * @param password Apple ID password
      * @return Result.success(Unit) if credentials accepted, Result.failure otherwise
      */
-    suspend fun startAuthentication(appleId: AppleId, password: String): Result<Unit>
+    suspend fun startAuthentication(
+        appleId: AppleId,
+        password: String,
+    ): Result<Unit>
 
     /**
      * Submits 2FA code received via SMS or security prompt. Only valid when state is

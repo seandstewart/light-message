@@ -39,7 +39,7 @@ sealed class ActivationStatus {
      * @param publicKey RSA public key for device
      */
     data class Activated(val deviceId: String, val publicKey: java.security.PublicKey) :
-            ActivationStatus()
+        ActivationStatus()
 
     /**
      * Hardware activation is pending. Caller should retry after nextPollIn milliseconds.

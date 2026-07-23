@@ -67,7 +67,11 @@ class CryptoEngine {
      * @return AesGcmResult with IV, ciphertext, and authTag, or null on failure
      * @throws Exception if encryption fails
      */
-    fun aesGcmEncrypt(plaintext: ByteArray, key: SecretKey, aad: ByteArray?): AesGcmResult {
+    fun aesGcmEncrypt(
+        plaintext: ByteArray,
+        key: SecretKey,
+        aad: ByteArray?,
+    ): AesGcmResult {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
 
         // Generate 12-byte IV
@@ -104,30 +108,30 @@ class CryptoEngine {
      * @return Result containing decrypted plaintext or failure
      */
     fun aesGcmDecrypt(
-            ciphertext: ByteArray,
-            key: SecretKey,
-            iv: ByteArray,
-            tag: ByteArray,
-            aad: ByteArray?
+        ciphertext: ByteArray,
+        key: SecretKey,
+        iv: ByteArray,
+        tag: ByteArray,
+        aad: ByteArray?,
     ): Result<ByteArray> =
-            try {
-                val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        try {
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
 
-                // Initialize with IV and 128-bit auth tag length
-                val gcmSpec = GCMParameterSpec(128, iv)
-                cipher.init(Cipher.DECRYPT_MODE, key, gcmSpec)
+            // Initialize with IV and 128-bit auth tag length
+            val gcmSpec = GCMParameterSpec(128, iv)
+            cipher.init(Cipher.DECRYPT_MODE, key, gcmSpec)
 
-                // Add AAD if provided
-                aad?.let { cipher.updateAAD(it) }
+            // Add AAD if provided
+            aad?.let { cipher.updateAAD(it) }
 
-                // Concatenate ciphertext and tag for decryption
-                val encryptedData = ciphertext + tag
-                val plaintext = cipher.doFinal(encryptedData)
+            // Concatenate ciphertext and tag for decryption
+            val encryptedData = ciphertext + tag
+            val plaintext = cipher.doFinal(encryptedData)
 
-                Result.success(plaintext)
-            } catch (e: Exception) {
-                Result.failure(e)
-            }
+            Result.success(plaintext)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
 
     /**
      * Generates an RSA-2048 key pair.
@@ -162,17 +166,20 @@ class CryptoEngine {
      * @param publicKey RSA-2048 PublicKey
      * @return Result containing wrapped key bytes or failure
      */
-    fun rsaOaepWrap(aesKey: SecretKey, publicKey: PublicKey): Result<ByteArray> =
-            try {
-                val cipher = Cipher.getInstance("RSA/ECB/OAEPWithSHA256AndMGF1Padding")
-                cipher.init(Cipher.WRAP_MODE, publicKey, secureRandom)
-                val wrappedKey = cipher.wrap(aesKey)
-                Result.success(wrappedKey)
-            } catch (e: InvalidKeyException) {
-                Result.failure(e)
-            } catch (e: Exception) {
-                Result.failure(e)
-            }
+    fun rsaOaepWrap(
+        aesKey: SecretKey,
+        publicKey: PublicKey,
+    ): Result<ByteArray> =
+        try {
+            val cipher = Cipher.getInstance("RSA/ECB/OAEPWithSHA256AndMGF1Padding")
+            cipher.init(Cipher.WRAP_MODE, publicKey, secureRandom)
+            val wrappedKey = cipher.wrap(aesKey)
+            Result.success(wrappedKey)
+        } catch (e: InvalidKeyException) {
+            Result.failure(e)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
 
     /**
      * Unwraps an AES key that was wrapped with RSA-2048-OAEP-SHA256.
@@ -181,17 +188,20 @@ class CryptoEngine {
      * @param privateKey RSA-2048 PrivateKey (must match public key used in wrapping)
      * @return Result containing unwrapped SecretKey or failure
      */
-    fun rsaOaepUnwrap(wrappedKey: ByteArray, privateKey: PrivateKey): Result<SecretKey> =
-            try {
-                val cipher = Cipher.getInstance("RSA/ECB/OAEPWithSHA256AndMGF1Padding")
-                cipher.init(Cipher.UNWRAP_MODE, privateKey)
-                val unwrappedKey = cipher.unwrap(wrappedKey, "AES", Cipher.SECRET_KEY)
-                Result.success(unwrappedKey as SecretKey)
-            } catch (e: InvalidKeyException) {
-                Result.failure(e)
-            } catch (e: Exception) {
-                Result.failure(e)
-            }
+    fun rsaOaepUnwrap(
+        wrappedKey: ByteArray,
+        privateKey: PrivateKey,
+    ): Result<SecretKey> =
+        try {
+            val cipher = Cipher.getInstance("RSA/ECB/OAEPWithSHA256AndMGF1Padding")
+            cipher.init(Cipher.UNWRAP_MODE, privateKey)
+            val unwrappedKey = cipher.unwrap(wrappedKey, "AES", Cipher.SECRET_KEY)
+            Result.success(unwrappedKey as SecretKey)
+        } catch (e: InvalidKeyException) {
+            Result.failure(e)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
 
     /**
      * Signs data using ECDSA P-256 with SHA-256.
@@ -200,18 +210,21 @@ class CryptoEngine {
      * @param privateKey ECDSA P-256 PrivateKey
      * @return Result containing DER-encoded signature or failure
      */
-    fun ecdsaSign(data: ByteArray, privateKey: PrivateKey): Result<ByteArray> =
-            try {
-                val signature = Signature.getInstance("SHA256withECDSA")
-                signature.initSign(privateKey, secureRandom)
-                signature.update(data)
-                val signatureBytes = signature.sign()
-                Result.success(signatureBytes)
-            } catch (e: InvalidKeyException) {
-                Result.failure(e)
-            } catch (e: Exception) {
-                Result.failure(e)
-            }
+    fun ecdsaSign(
+        data: ByteArray,
+        privateKey: PrivateKey,
+    ): Result<ByteArray> =
+        try {
+            val signature = Signature.getInstance("SHA256withECDSA")
+            signature.initSign(privateKey, secureRandom)
+            signature.update(data)
+            val signatureBytes = signature.sign()
+            Result.success(signatureBytes)
+        } catch (e: InvalidKeyException) {
+            Result.failure(e)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
 
     /**
      * Verifies an ECDSA P-256 signature with SHA-256.
@@ -222,24 +235,24 @@ class CryptoEngine {
      * @return Result.success(Unit) if valid, Result.failure if invalid or error
      */
     fun ecdsaVerify(
-            data: ByteArray,
-            signature: ByteArray,
-            certificate: X509Certificate
+        data: ByteArray,
+        signature: ByteArray,
+        certificate: X509Certificate,
     ): Result<Unit> =
-            try {
-                val publicKey = certificate.publicKey
-                val sig = Signature.getInstance("SHA256withECDSA")
-                sig.initVerify(publicKey)
-                sig.update(data)
-                val isValid = sig.verify(signature)
-                if (isValid) {
-                    Result.success(Unit)
-                } else {
-                    Result.failure(Exception("Signature verification failed"))
-                }
-            } catch (e: InvalidKeyException) {
-                Result.failure(e)
-            } catch (e: Exception) {
-                Result.failure(e)
+        try {
+            val publicKey = certificate.publicKey
+            val sig = Signature.getInstance("SHA256withECDSA")
+            sig.initVerify(publicKey)
+            sig.update(data)
+            val isValid = sig.verify(signature)
+            if (isValid) {
+                Result.success(Unit)
+            } else {
+                Result.failure(Exception("Signature verification failed"))
             }
+        } catch (e: InvalidKeyException) {
+            Result.failure(e)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
 }

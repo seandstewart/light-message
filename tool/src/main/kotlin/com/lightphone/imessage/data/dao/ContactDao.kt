@@ -21,7 +21,8 @@ interface ContactDao {
 
     @Delete suspend fun delete(contact: ContactEntity)
 
-    @Query("DELETE FROM contacts WHERE id = :contactId") suspend fun deleteById(contactId: String)
+    @Query("DELETE FROM contacts WHERE id = :contactId")
+    suspend fun deleteById(contactId: String)
 
     @Query("SELECT * FROM contacts WHERE id = :contactId")
     fun getById(contactId: String): Flow<ContactEntity?>
@@ -32,5 +33,6 @@ interface ContactDao {
     @Query("SELECT * FROM contacts ORDER BY displayName ASC")
     fun getAll(): Flow<List<ContactEntity>>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsert(contact: ContactEntity)
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(contact: ContactEntity)
 }

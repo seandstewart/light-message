@@ -13,8 +13,8 @@ import com.lightphone.imessage.domain.relay.IRelayService
 import com.lightphone.imessage.domain.relay.MessageId
 import com.lightphone.imessage.domain.relay.OutgoingMessage
 import com.lightphone.imessage.domain.relay.RelayConnectionState
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.first
+import java.util.concurrent.TimeUnit
 
 /**
  * Background sync worker for periodic health checks and message delivery retry. Runs every 15
@@ -27,15 +27,14 @@ import kotlinx.coroutines.flow.first
  * Spec: milestone-2.md § TASK_011 (Background Sync Worker); ADR-008 (WorkManager).
  */
 class BackgroundSyncWorker(context: Context, params: WorkerParameters) :
-        CoroutineWorker(context, params) {
-
+    CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         return try {
             performSync()
         } catch (e: Exception) {
             // Unexpected errors should be retried
             if (e.message?.contains("network", ignoreCase = true) == true ||
-                            e is java.io.IOException
+                e is java.io.IOException
             ) {
                 Result.retry()
             } else {
@@ -63,18 +62,18 @@ class BackgroundSyncWorker(context: Context, params: WorkerParameters) :
         // 1. Check relay connection state and reconnect if needed
         if (relayService.connectionState.value !is RelayConnectionState.Connected) {
             System.err.println(
-                    "[BackgroundSyncWorker] Relay not connected, attempting reconnect..."
+                "[BackgroundSyncWorker] Relay not connected, attempting reconnect...",
             )
             val connectResult = attemptRelayConnection(relayService)
             if (!connectResult.isSuccess) {
                 System.err.println(
-                        "[BackgroundSyncWorker] Failed to establish relay connection, retrying later"
+                    "[BackgroundSyncWorker] Failed to establish relay connection, retrying later",
                 )
                 return Result.retry()
             }
         }
         System.err.println(
-                "[BackgroundSyncWorker] Relay connection state: ${relayService.connectionState.value}"
+            "[BackgroundSyncWorker] Relay connection state: ${relayService.connectionState.value}",
         )
 
         // 2. Retry undelivered messages
@@ -88,7 +87,7 @@ class BackgroundSyncWorker(context: Context, params: WorkerParameters) :
         val syncResult = relayService.requestSync()
         if (!syncResult.isSuccess) {
             System.err.println(
-                    "[BackgroundSyncWorker] Failed to request sync from relay, retrying later"
+                "[BackgroundSyncWorker] Failed to request sync from relay, retrying later",
             )
             return Result.retry()
         }
@@ -110,59 +109,59 @@ class BackgroundSyncWorker(context: Context, params: WorkerParameters) :
      * ```
      */
     private suspend fun retryUndeliveredMessages(
-            relayService: IRelayService,
-            messageRepository: IMessageRepository
+        relayService: IRelayService,
+        messageRepository: IMessageRepository,
     ): Result {
         return try {
             val undeliveredMessages = messageRepository.getUndeliveredMessages().first()
             System.err.println(
-                    "[BackgroundSyncWorker] Found ${undeliveredMessages.size} undelivered messages"
+                "[BackgroundSyncWorker] Found ${undeliveredMessages.size} undelivered messages",
             )
 
             for (message in undeliveredMessages) {
                 val envelope = message.rawEnvelope
                 if (envelope == null) {
                     System.err.println(
-                            "[BackgroundSyncWorker] Skipping message ${message.id}: no raw envelope"
+                        "[BackgroundSyncWorker] Skipping message ${message.id}: no raw envelope",
                     )
                     continue
                 }
 
                 try {
                     val outgoing =
-                            OutgoingMessage(
-                                    recipient = message.sender,
-                                    payload = envelope,
-                                    messageId = MessageId(message.id)
-                            )
+                        OutgoingMessage(
+                            recipient = message.sender,
+                            payload = envelope,
+                            messageId = MessageId(message.id),
+                        )
                     val sendResult = relayService.sendMessage(outgoing)
                     if (sendResult.isSuccess) {
                         // Mark message as delivered
                         val markResult =
-                                messageRepository.markAsDelivered(
-                                        message.id,
-                                        System.currentTimeMillis()
-                                )
+                            messageRepository.markAsDelivered(
+                                message.id,
+                                System.currentTimeMillis(),
+                            )
                         if (markResult.isSuccess) {
                             System.err.println(
-                                    "[BackgroundSyncWorker] Message ${message.id} resent and marked as delivered"
+                                "[BackgroundSyncWorker] Message ${message.id} resent and marked as delivered",
                             )
                         } else {
                             System.err.println(
-                                    "[BackgroundSyncWorker] Message ${message.id} sent but failed to update status"
+                                "[BackgroundSyncWorker] Message ${message.id} sent but failed to update status",
                             )
                         }
                     } else {
                         // Log error but continue with next message (transient error on this
                         // specific message)
                         System.err.println(
-                                "[BackgroundSyncWorker] Failed to send message ${message.id}: ${sendResult.exceptionOrNull()?.message}"
+                            "[BackgroundSyncWorker] Failed to send message ${message.id}: ${sendResult.exceptionOrNull()?.message}",
                         )
                     }
                 } catch (e: Exception) {
                     // Log error but continue with next message
                     System.err.println(
-                            "[BackgroundSyncWorker] Exception sending message ${message.id}: ${e.message}"
+                        "[BackgroundSyncWorker] Exception sending message ${message.id}: ${e.message}",
                     )
                 }
             }
@@ -170,15 +169,15 @@ class BackgroundSyncWorker(context: Context, params: WorkerParameters) :
         } catch (e: Exception) {
             // Distinguish between network and database errors
             if (e.message?.contains("network", ignoreCase = true) == true ||
-                            e is java.io.IOException
+                e is java.io.IOException
             ) {
                 System.err.println(
-                        "[BackgroundSyncWorker] Network error while retrieving undelivered messages: ${e.message}"
+                    "[BackgroundSyncWorker] Network error while retrieving undelivered messages: ${e.message}",
                 )
                 Result.retry()
             } else {
                 System.err.println(
-                        "[BackgroundSyncWorker] Fatal error while retrieving undelivered messages: ${e.message}"
+                    "[BackgroundSyncWorker] Fatal error while retrieving undelivered messages: ${e.message}",
                 )
                 Result.failure(e)
             }
@@ -208,7 +207,7 @@ class BackgroundSyncWorker(context: Context, params: WorkerParameters) :
             }
         } catch (e: Exception) {
             System.err.println(
-                    "[BackgroundSyncWorker] Error checking relay connection: ${e.message}"
+                "[BackgroundSyncWorker] Error checking relay connection: ${e.message}",
             )
             Result.retry()
         }
@@ -246,31 +245,31 @@ class BackgroundSyncWorker(context: Context, params: WorkerParameters) :
          */
         fun schedule(context: Context) {
             val syncRequest =
-                    PeriodicWorkRequestBuilder<BackgroundSyncWorker>(
-                                    SYNC_INTERVAL_MINUTES,
-                                    TimeUnit.MINUTES
-                            )
-                            .apply {
-                                addTag("sync")
-                                setConstraints(
-                                        Constraints.Builder()
-                                                .setRequiredNetworkType(NetworkType.CONNECTED)
-                                                .build()
-                                )
-                                setBackoffCriteria(
-                                        androidx.work.BackoffPolicy.EXPONENTIAL,
-                                        BACKOFF_INITIAL_DELAY_MINUTES,
-                                        TimeUnit.MINUTES
-                                )
-                            }
-                            .build()
+                PeriodicWorkRequestBuilder<BackgroundSyncWorker>(
+                    SYNC_INTERVAL_MINUTES,
+                    TimeUnit.MINUTES,
+                )
+                    .apply {
+                        addTag("sync")
+                        setConstraints(
+                            Constraints.Builder()
+                                .setRequiredNetworkType(NetworkType.CONNECTED)
+                                .build(),
+                        )
+                        setBackoffCriteria(
+                            androidx.work.BackoffPolicy.EXPONENTIAL,
+                            BACKOFF_INITIAL_DELAY_MINUTES,
+                            TimeUnit.MINUTES,
+                        )
+                    }
+                    .build()
 
             WorkManager.getInstance(context)
-                    .enqueueUniquePeriodicWork(
-                            WORK_NAME,
-                            ExistingPeriodicWorkPolicy.KEEP,
-                            syncRequest
-                    )
+                .enqueueUniquePeriodicWork(
+                    WORK_NAME,
+                    ExistingPeriodicWorkPolicy.KEEP,
+                    syncRequest,
+                )
         }
 
         /**

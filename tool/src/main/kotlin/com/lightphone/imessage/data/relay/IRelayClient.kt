@@ -14,7 +14,10 @@ interface IRelayClient {
      * @param password Apple ID password
      * @return Result containing either a LoginResponse or error details
      */
-    suspend fun loginWithCredentials(email: String, password: String): Result<LoginResponse>
+    suspend fun loginWithCredentials(
+        email: String,
+        password: String,
+    ): Result<LoginResponse>
 
     /**
      * Submits 2FA code to complete authentication.
@@ -23,7 +26,10 @@ interface IRelayClient {
      * @param code 6-digit 2FA code
      * @return Result containing either a SessionResponse or error details
      */
-    suspend fun submitTwoFactor(challenge: String, code: String): Result<SessionResponse>
+    suspend fun submitTwoFactor(
+        challenge: String,
+        code: String,
+    ): Result<SessionResponse>
 
     /**
      * Requests a new 2FA code via SMS.

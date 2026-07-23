@@ -9,7 +9,6 @@ import androidx.work.testing.WorkManagerTestInitHelper
 import com.lightphone.imessage.data.ImessageDatabase
 import com.lightphone.imessage.data.ThreadEntity
 import com.lightphone.imessage.domain.relay.IMessageCodec
-import java.util.UUID
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import org.junit.After
@@ -19,6 +18,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.Mock
 import org.mockito.MockitoAnnotations
+import java.util.UUID
 
 /**
  * Comprehensive integration tests for UnifiedPush receiver and processing. Tests push delivery,
@@ -29,7 +29,6 @@ import org.mockito.MockitoAnnotations
  */
 @RunWith(AndroidJUnit4::class)
 class PushReceiverIntegrationTest {
-
     private lateinit var context: Context
     private lateinit var database: ImessageDatabase
     private lateinit var pushReceiver: PushReceiver
@@ -71,25 +70,25 @@ class PushReceiverIntegrationTest {
         val envelopeData = "encrypted-message-data".toByteArray()
 
         val pushPayload =
-                mapOf(
-                        "message_id" to messageId,
-                        "sender" to sender,
-                        "timestamp" to timestamp,
-                        "envelope" to
-                                android.util.Base64.encodeToString(
-                                        envelopeData,
-                                        android.util.Base64.NO_WRAP
-                                )
-                )
+            mapOf(
+                "message_id" to messageId,
+                "sender" to sender,
+                "timestamp" to timestamp,
+                "envelope" to
+                    android.util.Base64.encodeToString(
+                        envelopeData,
+                        android.util.Base64.NO_WRAP,
+                    ),
+            )
 
         val jsonPayload = Json.encodeToString(kotlinx.serialization.serializer(), pushPayload)
 
         // Step 1: Create intent with push data
         val intent =
-                Intent().apply {
-                    action = "org.unifiedpush.android.message"
-                    putExtra("message", jsonPayload)
-                }
+            Intent().apply {
+                action = "org.unifiedpush.android.message"
+                putExtra("message", jsonPayload)
+            }
 
         // Step 2: Broadcast to PushReceiver
         pushReceiver.onReceive(context, intent)
@@ -124,24 +123,24 @@ class PushReceiverIntegrationTest {
         val envelopeData = "same-envelope".toByteArray()
 
         val pushPayload =
-                mapOf(
-                        "message_id" to messageId,
-                        "sender" to sender,
-                        "timestamp" to timestamp,
-                        "envelope" to
-                                android.util.Base64.encodeToString(
-                                        envelopeData,
-                                        android.util.Base64.NO_WRAP
-                                )
-                )
+            mapOf(
+                "message_id" to messageId,
+                "sender" to sender,
+                "timestamp" to timestamp,
+                "envelope" to
+                    android.util.Base64.encodeToString(
+                        envelopeData,
+                        android.util.Base64.NO_WRAP,
+                    ),
+            )
 
         val jsonPayload = Json.encodeToString(kotlinx.serialization.serializer(), pushPayload)
 
         val intent =
-                Intent().apply {
-                    action = "org.unifiedpush.android.message"
-                    putExtra("message", jsonPayload)
-                }
+            Intent().apply {
+                action = "org.unifiedpush.android.message"
+                putExtra("message", jsonPayload)
+            }
 
         // Step 1: Send first push
         pushReceiver.onReceive(context, intent)
@@ -156,9 +155,9 @@ class PushReceiverIntegrationTest {
 
         val matchingMessages = messages.filter { it.id == messageId }
         assertEquals(
-                "Only 1 message should be persisted despite duplicate push",
-                1,
-                matchingMessages.size
+            "Only 1 message should be persisted despite duplicate push",
+            1,
+            matchingMessages.size,
         )
     }
 
@@ -175,24 +174,24 @@ class PushReceiverIntegrationTest {
         val badEnvelopeData = "invalid-encrypted-data".toByteArray()
 
         val pushPayload =
-                mapOf(
-                        "message_id" to messageId,
-                        "sender" to sender,
-                        "timestamp" to System.currentTimeMillis(),
-                        "envelope" to
-                                android.util.Base64.encodeToString(
-                                        badEnvelopeData,
-                                        android.util.Base64.NO_WRAP
-                                )
-                )
+            mapOf(
+                "message_id" to messageId,
+                "sender" to sender,
+                "timestamp" to System.currentTimeMillis(),
+                "envelope" to
+                    android.util.Base64.encodeToString(
+                        badEnvelopeData,
+                        android.util.Base64.NO_WRAP,
+                    ),
+            )
 
         val jsonPayload = Json.encodeToString(kotlinx.serialization.serializer(), pushPayload)
 
         val intent =
-                Intent().apply {
-                    action = "org.unifiedpush.android.message"
-                    putExtra("message", jsonPayload)
-                }
+            Intent().apply {
+                action = "org.unifiedpush.android.message"
+                putExtra("message", jsonPayload)
+            }
 
         // Step 1: Send push with bad envelope
         pushReceiver.onReceive(context, intent)
@@ -203,9 +202,9 @@ class PushReceiverIntegrationTest {
 
         val failedMessages = messages.filter { it.id == messageId }
         assertEquals(
-                "Message with decryption failure should not be persisted",
-                0,
-                failedMessages.size
+            "Message with decryption failure should not be persisted",
+            0,
+            failedMessages.size,
         )
     }
 
@@ -223,35 +222,35 @@ class PushReceiverIntegrationTest {
         val envelopeData = "message-data".toByteArray()
 
         val pushPayload =
-                mapOf(
-                        "message_id" to messageId,
-                        "sender" to sender,
-                        "timestamp" to System.currentTimeMillis(),
-                        "envelope" to
-                                android.util.Base64.encodeToString(
-                                        envelopeData,
-                                        android.util.Base64.NO_WRAP
-                                )
-                )
+            mapOf(
+                "message_id" to messageId,
+                "sender" to sender,
+                "timestamp" to System.currentTimeMillis(),
+                "envelope" to
+                    android.util.Base64.encodeToString(
+                        envelopeData,
+                        android.util.Base64.NO_WRAP,
+                    ),
+            )
 
         val jsonPayload = Json.encodeToString(kotlinx.serialization.serializer(), pushPayload)
 
         val intent =
-                Intent().apply {
-                    action = "org.unifiedpush.android.message"
-                    putExtra("message", jsonPayload)
-                }
+            Intent().apply {
+                action = "org.unifiedpush.android.message"
+                putExtra("message", jsonPayload)
+            }
 
         // Step 1: Manually create thread in database for testing
         val threadId = deriveThreadIdDeterministic(sender, deviceAddress)
         val thread =
-                ThreadEntity(
-                        id = threadId,
-                        title = sender,
-                        lastMessage = "",
-                        lastTimestamp = System.currentTimeMillis(),
-                        participantUris = "$sender|$deviceAddress"
-                )
+            ThreadEntity(
+                id = threadId,
+                title = sender,
+                lastMessage = "",
+                lastTimestamp = System.currentTimeMillis(),
+                participantUris = "$sender|$deviceAddress",
+            )
         runBlocking { database.threadDao().insert(thread) }
 
         // Step 2: Send push
@@ -264,8 +263,8 @@ class PushReceiverIntegrationTest {
         val matchingThread = threads.find { it.id == threadId }
         assertNotNull("Thread should exist with derived ID", matchingThread)
         assertTrue(
-                "Thread should contain participants",
-                matchingThread?.participantUris?.contains(sender) == true
+            "Thread should contain participants",
+            matchingThread?.participantUris?.contains(sender) == true,
         )
     }
 
@@ -282,24 +281,24 @@ class PushReceiverIntegrationTest {
         val envelopeData = "message-data".toByteArray()
 
         val pushPayload =
-                mapOf(
-                        "message_id" to messageId,
-                        "sender" to sender,
-                        "timestamp" to System.currentTimeMillis(),
-                        "envelope" to
-                                android.util.Base64.encodeToString(
-                                        envelopeData,
-                                        android.util.Base64.NO_WRAP
-                                )
-                )
+            mapOf(
+                "message_id" to messageId,
+                "sender" to sender,
+                "timestamp" to System.currentTimeMillis(),
+                "envelope" to
+                    android.util.Base64.encodeToString(
+                        envelopeData,
+                        android.util.Base64.NO_WRAP,
+                    ),
+            )
 
         val jsonPayload = Json.encodeToString(kotlinx.serialization.serializer(), pushPayload)
 
         val intent =
-                Intent().apply {
-                    action = "org.unifiedpush.android.message"
-                    putExtra("message", jsonPayload)
-                }
+            Intent().apply {
+                action = "org.unifiedpush.android.message"
+                putExtra("message", jsonPayload)
+            }
 
         // Step 1: Send push to receiver
         val startTime = System.currentTimeMillis()
@@ -314,8 +313,8 @@ class PushReceiverIntegrationTest {
         val workInfo = runBlocking { workManager.getWorkInfosByTag("push_processing").get() }
 
         assertTrue(
-                "At least one work request should be enqueued",
-                workInfo.size >= 0 // In test environment, count may vary
+            "At least one work request should be enqueued",
+            workInfo.size >= 0, // In test environment, count may vary
         )
     }
 
@@ -328,9 +327,9 @@ class PushReceiverIntegrationTest {
     private fun deriveThreadIdDeterministic(vararg participants: String): String {
         val sorted = participants.sorted().joinToString("|")
         return java.security.MessageDigest.getInstance("SHA-256")
-                .digest(sorted.toByteArray())
-                .joinToString("") { "%02x".format(it) }
-                .take(32)
+            .digest(sorted.toByteArray())
+            .joinToString("") { "%02x".format(it) }
+            .take(32)
     }
 
     // Hack to get first() from Flow in test context

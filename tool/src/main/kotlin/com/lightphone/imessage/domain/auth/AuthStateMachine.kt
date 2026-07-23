@@ -5,7 +5,6 @@ import com.lightphone.imessage.data.native.ActivationStatus
 import com.lightphone.imessage.data.native.INativeServiceClient
 import com.lightphone.imessage.data.relay.IRelayClient
 import com.lightphone.imessage.data.relay.LoginResponse
-import kotlin.math.min
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,6 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlin.math.min
 
 /**
  * Internal state machine managing authentication flow and state transitions.
@@ -27,10 +27,10 @@ import kotlinx.coroutines.sync.withLock
  * All state changes are persisted to a StateFlow for reactive updates.
  */
 internal class AuthStateMachine(
-        private val tokenRepository: ITokenRepository,
-        private val relayClient: IRelayClient,
-        private val nativeClient: INativeServiceClient,
-        private val scope: CoroutineScope
+    private val tokenRepository: ITokenRepository,
+    private val relayClient: IRelayClient,
+    private val nativeClient: INativeServiceClient,
+    private val scope: CoroutineScope,
 ) {
     private val _state = MutableStateFlow<AuthState>(AuthState.Idle)
     private val stateMutex = Mutex()
@@ -47,7 +47,10 @@ internal class AuthStateMachine(
      * Sends credentials to relay; if 2FA required, transitions to AwaitingTwoFactorCode. If direct
      * activation possible, transitions to ProvisioningHardware. On error, transitions to Failed.
      */
-    suspend fun requestLogin(appleId: AppleId, password: String): Result<Unit> {
+    suspend fun requestLogin(
+        appleId: AppleId,
+        password: String,
+    ): Result<Unit> {
         return try {
             // Reset retry counters
             stateMutex.withLock {
@@ -59,9 +62,9 @@ internal class AuthStateMachine(
 
             // Attempt login with retry logic (3 retries on network failure)
             val loginResponse =
-                    retryWithBackoff(maxRetries = 3, backoffDelays = listOf(1000, 2000, 4000)) {
-                        relayClient.loginWithCredentials(appleId.email, password)
-                    }
+                retryWithBackoff(maxRetries = 3, backoffDelays = listOf(1000, 2000, 4000)) {
+                    relayClient.loginWithCredentials(appleId.email, password)
+                }
 
             when (loginResponse) {
                 is LoginResponse.TwoFactorRequired -> {
@@ -89,12 +92,12 @@ internal class AuthStateMachine(
     suspend fun submitTwoFA(code: String): Result<Unit> {
         return try {
             val challenge =
-                    stateMutex.withLock {
-                        currentChallenge
-                                ?: return Result.failure(
-                                        IllegalStateException("No active 2FA challenge")
-                                )
-                    }
+                stateMutex.withLock {
+                    currentChallenge
+                        ?: return Result.failure(
+                            IllegalStateException("No active 2FA challenge"),
+                        )
+                }
 
             // Validate 2FA code format: numeric 6-digit codes as per Apple iMessage specification.
             // Non-numeric codes or codes of different lengths are rejected.
@@ -104,9 +107,9 @@ internal class AuthStateMachine(
 
             // Retry 2FA submission up to 2 times
             val sessionResponse =
-                    retryWithBackoff(maxRetries = 2, backoffDelays = listOf(500, 1000)) {
-                        relayClient.submitTwoFactor(challenge, code)
-                    }
+                retryWithBackoff(maxRetries = 2, backoffDelays = listOf(500, 1000)) {
+                    relayClient.submitTwoFactor(challenge, code)
+                }
 
             // Get Apple ID from repository (stored during login)
             val appleIdResult = tokenRepository.getAppleId()
@@ -117,9 +120,9 @@ internal class AuthStateMachine(
             val appleIdEmail = appleIdResult.getOrNull() ?: throw Exception("Apple ID not found")
 
             proceedToProvisioning(
-                    AppleId(appleIdEmail),
-                    sessionResponse.token,
-                    sessionResponse.expiresAt
+                AppleId(appleIdEmail),
+                sessionResponse.token,
+                sessionResponse.expiresAt,
             )
         } catch (e: Exception) {
             stateMutex.withLock { twoFARetryCount++ }
@@ -136,15 +139,15 @@ internal class AuthStateMachine(
     suspend fun resendTwoFA(): Result<Unit> {
         return try {
             val (challenge, canResend) =
-                    stateMutex.withLock {
-                        val ch =
-                                currentChallenge
-                                        ?: return Result.failure(
-                                                IllegalStateException("No active 2FA challenge")
-                                        )
-                        val can = twoFAResendCount < 3
-                        Pair(ch, can)
-                    }
+                stateMutex.withLock {
+                    val ch =
+                        currentChallenge
+                            ?: return Result.failure(
+                                IllegalStateException("No active 2FA challenge"),
+                            )
+                    val can = twoFAResendCount < 3
+                    Pair(ch, can)
+                }
 
             if (!canResend) {
                 return Result.failure(IllegalStateException("Maximum 2FA resend attempts exceeded"))
@@ -178,40 +181,40 @@ internal class AuthStateMachine(
             val currentTokenResult = tokenRepository.getSessionToken()
             if (currentTokenResult.isFailure) {
                 throw currentTokenResult.exceptionOrNull()
-                        ?: Exception("No session token to refresh")
+                    ?: Exception("No session token to refresh")
             }
 
             val currentToken =
-                    currentTokenResult.getOrNull() ?: throw Exception("No session token to refresh")
+                currentTokenResult.getOrNull() ?: throw Exception("No session token to refresh")
 
             // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 32s, 60s (cap)
             val backoffDelays = (0..6).map { i -> min(1000L shl i, 60000L).toInt() }
 
             val sessionResponse =
-                    retryWithBackoff(
-                            maxRetries = backoffDelays.size,
-                            backoffDelays = backoffDelays
-                    ) { relayClient.refreshToken(currentToken) }
+                retryWithBackoff(
+                    maxRetries = backoffDelays.size,
+                    backoffDelays = backoffDelays,
+                ) { relayClient.refreshToken(currentToken) }
 
             // Update token repository
             val saveResult =
-                    tokenRepository.saveSessionToken(
-                            sessionResponse.token,
-                            sessionResponse.expiresAt
-                    )
+                tokenRepository.saveSessionToken(
+                    sessionResponse.token,
+                    sessionResponse.expiresAt,
+                )
             if (saveResult.isFailure) {
                 throw saveResult.exceptionOrNull() ?: Exception("Failed to save token")
             }
 
             _state.value =
-                    AuthState.SessionEstablished(sessionResponse.token, sessionResponse.expiresAt)
+                AuthState.SessionEstablished(sessionResponse.token, sessionResponse.expiresAt)
             Result.success(Unit)
         } catch (e: Exception) {
             // Token refresh failed; require re-authentication
             _state.value =
-                    AuthState.AwaitingCredentials(
-                            lastError = "Session expired. Please log in again."
-                    )
+                AuthState.AwaitingCredentials(
+                    lastError = "Session expired. Please log in again.",
+                )
             Result.failure(e)
         }
     }
@@ -244,9 +247,9 @@ internal class AuthStateMachine(
 
     /** Internal: Transitions from login/2FA to hardware provisioning. */
     private suspend fun proceedToProvisioning(
-            appleId: AppleId,
-            token: String,
-            expiresAt: Long
+        appleId: AppleId,
+        token: String,
+        expiresAt: Long,
     ): Result<Unit> {
         return try {
             // Save Apple ID and token
@@ -269,29 +272,29 @@ internal class AuthStateMachine(
             }
 
             val hardwareInfo =
-                    hardwareResult.getOrNull() ?: throw Exception("Hardware info not returned")
+                hardwareResult.getOrNull() ?: throw Exception("Hardware info not returned")
 
             _state.value = AuthState.ProvisioningHardware(progress = 50)
 
             // Poll for activation status
             val activationResult =
-                    nativeClient.pollActivationStatus(deviceId = hardwareInfo.deviceId)
+                nativeClient.pollActivationStatus(deviceId = hardwareInfo.deviceId)
             if (activationResult.isFailure) {
                 throw activationResult.exceptionOrNull() ?: Exception("Activation polling failed")
             }
 
             val activationStatus =
-                    activationResult.getOrNull()
-                            ?: throw Exception("Activation status not returned")
+                activationResult.getOrNull()
+                    ?: throw Exception("Activation status not returned")
 
             when (activationStatus) {
                 ActivationStatus.Activated -> {
                     // Save hardware info
                     val saveHwResult =
-                            tokenRepository.saveHardwareInfo(hardwareInfo.certificateData)
+                        tokenRepository.saveHardwareInfo(hardwareInfo.certificateData)
                     if (saveHwResult.isFailure) {
                         throw saveHwResult.exceptionOrNull()
-                                ?: Exception("Failed to save hardware info")
+                            ?: Exception("Failed to save hardware info")
                     }
 
                     _state.value = AuthState.ProvisioningHardware(progress = 100)
@@ -320,9 +323,9 @@ internal class AuthStateMachine(
      * @return Result from successful operation or last failed attempt
      */
     private suspend fun <T> retryWithBackoff(
-            maxRetries: Int,
-            backoffDelays: List<Int>,
-            operation: suspend () -> Result<T>
+        maxRetries: Int,
+        backoffDelays: List<Int>,
+        operation: suspend () -> Result<T>,
     ): T {
         var lastResult: Result<T>? = null
 
@@ -331,7 +334,7 @@ internal class AuthStateMachine(
 
             if (lastResult.isSuccess) {
                 return lastResult.getOrNull()
-                        ?: throw Exception("Operation succeeded but returned null")
+                    ?: throw Exception("Operation succeeded but returned null")
             }
 
             // Don't delay after the last attempt

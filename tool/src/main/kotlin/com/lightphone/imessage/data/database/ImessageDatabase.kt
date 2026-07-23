@@ -15,9 +15,9 @@ import com.lightphone.imessage.data.entity.ThreadEntity
  * ADR-006 (Room and DataStore).
  */
 @Database(
-        entities = [MessageEntity::class, ThreadEntity::class, ContactEntity::class],
-        version = 1,
-        exportSchema = false
+    entities = [MessageEntity::class, ThreadEntity::class, ContactEntity::class],
+    version = 1,
+    exportSchema = false,
 )
 abstract class ImessageDatabase : RoomDatabase() {
     abstract fun messageDao(): MessageDao
