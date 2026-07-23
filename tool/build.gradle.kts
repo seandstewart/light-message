@@ -4,13 +4,12 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.devtools.ksp")
+    id("org.jmailen.kotlinter") version "4.3.0"
 }
 
 android {
     namespace = "com.lightos.imessage"
     compileSdk = 36
-    // Match NDK provisioned by mise (ANDROID_NDK_VERSION in mise.toml);
-    // AGP's default NDK version is not installed.
     ndkVersion = System.getenv("ANDROID_NDK_VERSION") ?: "25.2.9519653"
 
     defaultConfig {
@@ -37,10 +36,6 @@ android {
 
     packaging {
         jniLibs {
-            // The rustpush native service is packaged as librustpush_service.so
-            // but is a standalone executable. Legacy (uncompressed, extracted)
-            // packaging is required so NativeServiceLauncher can run it from
-            // nativeLibraryDir.
             useLegacyPackaging = true
         }
     }
@@ -80,4 +75,8 @@ dependencies {
     implementation("androidx.startup:startup-runtime:1.1.1")
 
     testImplementation("org.jetbrains.kotlin:kotlin-test:2.3.0")
+}
+
+kotlinter {
+    ignoreFailures = false
 }
