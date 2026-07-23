@@ -43,7 +43,9 @@
             android:exported="true"
             android:permission="org.unifiedpush.android.distributor.SEND_PUSH">
             <intent-filter>
+                <!-- Message delivery from rustpush -->
                 <action android:name="org.unifiedpush.android.distributor.RECEIVE_PUSH" />
+                <!-- Registration result acknowledgment -->
                 <action android:name="org.unifiedpush.android.distributor.REGISTRATION_RESULT" />
             </intent-filter>
         </receiver>
