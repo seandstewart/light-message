@@ -4,20 +4,9 @@ import android.content.Context
 import android.net.LocalSocket
 import android.net.LocalSocketAddress
 import android.util.Log
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
+import java.io.EOFException
 import java.io.IOException
 import java.nio.charset.StandardCharsets
 import java.security.KeyFactory
@@ -25,6 +14,22 @@ import java.security.spec.X509EncodedKeySpec
 import java.util.Base64
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.future.await
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 
 /**
  * Unix domain socket IPC client for native service communication. Implements length-prefixed JSON
@@ -38,28 +43,31 @@ import java.util.concurrent.CompletableFuture
  * 6.4 (Reconnect Backoff).
  */
 class NativeServiceClient(
-    private val context: Context,
-    private val scope: CoroutineScope,
-    private val socketPath: String = "/dev/socket/rustpush_ipc",
+        private val context: Context,
+        private val scope: CoroutineScope,
+        private val socketPath: String = "/dev/socket/rustpush_ipc",
 ) : INativeServiceClient {
     private val _connectionState =
-        MutableStateFlow<NativeServiceState>(NativeServiceState.Disconnected)
+            MutableStateFlow<NativeServiceState>(NativeServiceState.Disconnected)
     override val connectionState: StateFlow<NativeServiceState> = _connectionState
 
     private var ipcSocket: LocalSocket? = null
     private val ipcQueue: MutableList<IpcMessage> = mutableListOf()
     private val pendingRequests: MutableMap<String, CompletableFuture<IpcMessage>> = mutableMapOf()
     private val queueMutex = Mutex()
-    private val socketMutex = Mutex()
+    private val socketMutex = Mutex() // guards ipcSocket ref (assign/close)
+    private val writeMutex = Mutex() // serializes concurrent writers on the socket
     private val pendingRequestsMutex = Mutex()
     private val reconnectPolicy: ReconnectPolicy =
-        ReconnectPolicy(maxAttempts = 5, baseDelayMs = 1000)
+            ReconnectPolicy(maxAttempts = 5, baseDelayMs = 1000)
 
-    private var reconnectAttempt = 0
+    private val reconnectAttempt = AtomicInteger(0)
     private var keepaliveJob: Job? = null
-    private var pingTimeoutJob: Job? = null
     private var readLoopJob: Job? = null
     private var reconnectJob: Job? = null
+
+    // Latest outstanding pong wait, completed when a "pong" frame arrives.
+    @Volatile private var pongDeferred: CompletableDeferred<Unit>? = null
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -73,13 +81,15 @@ class NativeServiceClient(
     }
 
     override suspend fun connect(): Result<Unit> {
+        _connectionState.emit(NativeServiceState.Connecting)
+        reconnectAttempt.set(0)
         return try {
-            _connectionState.emit(NativeServiceState.Connecting)
-            reconnectAttempt = 0
             performConnect()
             Result.success(Unit)
         } catch (e: Exception) {
-            _connectionState.emit(NativeServiceState.Failed(e.message ?: "Unknown error"))
+            // Surface failure to caller; schedule reconnect in background.
+            reconnectJob?.cancel()
+            reconnectJob = scope.launch { onSocketFailure(e) }
             Result.failure(e)
         }
     }
@@ -87,9 +97,13 @@ class NativeServiceClient(
     override suspend fun disconnect(): Result<Unit> {
         return try {
             reconnectJob?.cancel()
+            reconnectJob = null
             keepaliveJob?.cancel()
-            pingTimeoutJob?.cancel()
+            keepaliveJob = null
             readLoopJob?.cancel()
+            readLoopJob = null
+            pongDeferred?.cancel()
+            pongDeferred = null
 
             socketMutex.withLock {
                 ipcSocket?.close()
@@ -107,19 +121,19 @@ class NativeServiceClient(
         return try {
             val correlationId = UUID.randomUUID().toString()
             val message =
-                IpcMessage(
-                    correlationId = correlationId,
-                    command = "register_hardware",
-                    payload =
-                        Base64.getEncoder()
-                            .encodeToString(hwInfo)
-                            .toByteArray(StandardCharsets.UTF_8),
-                    timestamp = System.currentTimeMillis(),
-                )
+                    IpcMessage(
+                            correlationId = correlationId,
+                            command = "register_hardware",
+                            payload =
+                                    Base64.getEncoder()
+                                            .encodeToString(hwInfo)
+                                            .toByteArray(StandardCharsets.UTF_8),
+                            timestamp = System.currentTimeMillis(),
+                    )
 
             val response =
-                withTimeoutOrNull(IPC_TIMEOUT_MS) { sendMessage(message) }
-                    ?: return Result.failure(IOException("IPC timeout"))
+                    withTimeoutOrNull(IPC_TIMEOUT_MS) { sendMessage(message) }
+                            ?: return Result.failure(IOException("IPC timeout"))
 
             // Parse response: { "device_id": "..." }
             val responseJson = String(response.payload, StandardCharsets.UTF_8)
@@ -134,39 +148,39 @@ class NativeServiceClient(
         return try {
             val correlationId = UUID.randomUUID().toString()
             val message =
-                IpcMessage(
-                    correlationId = correlationId,
-                    command = "poll_activation",
-                    payload = deviceId.toByteArray(StandardCharsets.UTF_8),
-                    timestamp = System.currentTimeMillis(),
-                )
+                    IpcMessage(
+                            correlationId = correlationId,
+                            command = "poll_activation",
+                            payload = deviceId.toByteArray(StandardCharsets.UTF_8),
+                            timestamp = System.currentTimeMillis(),
+                    )
 
             val response =
-                withTimeoutOrNull(IPC_TIMEOUT_MS) { sendMessage(message) }
-                    ?: return Result.failure(IOException("IPC timeout"))
+                    withTimeoutOrNull(IPC_TIMEOUT_MS) { sendMessage(message) }
+                            ?: return Result.failure(IOException("IPC timeout"))
 
             // Parse response: { "status": "activated|pending|failed", ... }
             val responseJson = String(response.payload, StandardCharsets.UTF_8)
             val dto = json.decodeFromString(ActivationStatusDto.serializer(), responseJson)
 
             val status =
-                when (dto.status) {
-                    "activated" -> {
-                        // Decode public key from base64
-                        val keyBytes = Base64.getDecoder().decode(dto.public_key ?: "")
-                        val spec = X509EncodedKeySpec(keyBytes)
-                        val factory = KeyFactory.getInstance("RSA")
-                        val publicKey = factory.generatePublic(spec)
-                        ActivationStatus.Activated(deviceId, publicKey)
+                    when (dto.status) {
+                        "activated" -> {
+                            // Decode public key from base64
+                            val keyBytes = Base64.getDecoder().decode(dto.public_key ?: "")
+                            val spec = X509EncodedKeySpec(keyBytes)
+                            val factory = KeyFactory.getInstance("RSA")
+                            val publicKey = factory.generatePublic(spec)
+                            ActivationStatus.Activated(deviceId, publicKey)
+                        }
+                        "pending" ->
+                                ActivationStatus.Pending(dto.attempt ?: 0, dto.next_poll_in ?: 0)
+                        "failed" -> ActivationStatus.Failed(dto.error ?: "Unknown error")
+                        else ->
+                                return Result.failure(
+                                        IOException("Unknown activation status: ${dto.status}"),
+                                )
                     }
-                    "pending" ->
-                        ActivationStatus.Pending(dto.attempt ?: 0, dto.next_poll_in ?: 0)
-                    "failed" -> ActivationStatus.Failed(dto.error ?: "Unknown error")
-                    else ->
-                        return Result.failure(
-                            IOException("Unknown activation status: ${dto.status}"),
-                        )
-                }
 
             Result.success(status)
         } catch (e: Exception) {
@@ -179,20 +193,20 @@ class NativeServiceClient(
             queueMutex.withLock {
                 if (ipcQueue.size >= MAX_QUEUE_DEPTH) {
                     return Result.failure(
-                        IOException("IPC queue full (>${MAX_QUEUE_DEPTH} messages)"),
+                            IOException("IPC queue full (>${MAX_QUEUE_DEPTH} messages)"),
                     )
                 }
 
                 val message =
-                    IpcMessage(
-                        correlationId = UUID.randomUUID().toString(),
-                        command = "push_notification",
-                        payload =
-                            Base64.getEncoder()
-                                .encodeToString(payload)
-                                .toByteArray(StandardCharsets.UTF_8),
-                        timestamp = System.currentTimeMillis(),
-                    )
+                        IpcMessage(
+                                correlationId = UUID.randomUUID().toString(),
+                                command = "push_notification",
+                                payload =
+                                        Base64.getEncoder()
+                                                .encodeToString(payload)
+                                                .toByteArray(StandardCharsets.UTF_8),
+                                timestamp = System.currentTimeMillis(),
+                        )
 
                 ipcQueue.add(message)
             }
@@ -206,64 +220,72 @@ class NativeServiceClient(
         }
     }
 
-    /** Perform Unix domain socket connection with retry logic. */
+    /**
+     * Perform Unix domain socket connection. Throws on failure so the caller can decide whether to
+     * surface the error or schedule a reconnect.
+     */
     private suspend fun performConnect() {
-        if (!reconnectPolicy.shouldRetry(reconnectAttempt)) {
+        if (!reconnectPolicy.shouldRetry(reconnectAttempt.get())) {
             val error = "Max reconnect attempts (${reconnectPolicy.maxAttempts}) exhausted"
             _connectionState.emit(NativeServiceState.Failed(error))
-            return
+            throw IOException(error)
         }
 
-        try {
-            val socket = LocalSocket()
-            val address = LocalSocketAddress(socketPath, LocalSocketAddress.Namespace.FILESYSTEM)
+        val socket = LocalSocket()
+        val address = LocalSocketAddress(socketPath, LocalSocketAddress.Namespace.FILESYSTEM)
 
-            socket.connect(address)
-            socketMutex.withLock { ipcSocket = socket }
+        socket.connect(address) // throws on failure
+        socketMutex.withLock { ipcSocket = socket }
 
-            scope.launch {
-                _connectionState.emit(NativeServiceState.Connected)
-                reconnectAttempt = 0
+        // Start the read loop BEFORE emitting Connected so callers cannot race a
+        // send-before-reader-is-up window and lose the response.
+        val readLoopReady = CompletableDeferred<Unit>()
+        startReadLoop(readLoopReady)
+        readLoopReady.await()
 
-                // Drain any queued messages
-                drainQueue()
+        _connectionState.emit(NativeServiceState.Connected)
+        reconnectAttempt.set(0)
 
-                // Start heartbeat
-                startHeartbeat()
-
-                // Start read loop
-                startReadLoop()
-            }
-        } catch (e: Exception) {
-            onSocketFailure(e)
-        }
+        startHeartbeat()
+        // Fire-and-forget: drain queued messages after connect.
+        scope.launch { drainQueue() }
     }
 
     /** Called when socket connection fails. Triggers reconnection with backoff. */
     private suspend fun onSocketFailure(t: Throwable) {
         keepaliveJob?.cancel()
-        pingTimeoutJob?.cancel()
+        keepaliveJob = null
         readLoopJob?.cancel()
+        readLoopJob = null
+        pongDeferred?.cancel()
+        pongDeferred = null
 
         socketMutex.withLock {
             ipcSocket?.close()
             ipcSocket = null
         }
 
-        if (reconnectPolicy.shouldRetry(reconnectAttempt)) {
-            val delayMs = reconnectPolicy.getDelayMs(reconnectAttempt)
-            val nextAttempt = reconnectAttempt + 1
+        val currentAttempt = reconnectAttempt.get()
+        if (reconnectPolicy.shouldRetry(currentAttempt)) {
+            val delayMs = reconnectPolicy.getDelayMs(currentAttempt)
+            val nextAttempt = reconnectAttempt.incrementAndGet()
 
             _connectionState.emit(
-                NativeServiceState.Reconnecting(attempt = nextAttempt, nextRetryIn = delayMs),
+                    NativeServiceState.Reconnecting(attempt = nextAttempt, nextRetryIn = delayMs),
             )
 
-            reconnectAttempt = nextAttempt
-            delay(delayMs)
-
-            if (_connectionState.value is NativeServiceState.Reconnecting) {
-                performConnect()
-            }
+            reconnectJob?.cancel()
+            reconnectJob =
+                    scope.launch {
+                        delay(delayMs)
+                        if (_connectionState.value is NativeServiceState.Reconnecting) {
+                            try {
+                                performConnect()
+                            } catch (e: Exception) {
+                                onSocketFailure(e)
+                            }
+                        }
+                    }
         } else {
             val error = "Socket failure after ${reconnectPolicy.maxAttempts} attempts: ${t.message}"
             _connectionState.emit(NativeServiceState.Failed(error))
@@ -277,7 +299,8 @@ class NativeServiceClient(
 
         try {
             writeFrame(msg)
-            return responseFuture.get() as IpcMessage
+            // Cooperative suspend — cancellable by outer withTimeoutOrNull.
+            return responseFuture.await()
         } finally {
             pendingRequestsMutex.withLock { pendingRequests.remove(msg.correlationId) }
         }
@@ -285,44 +308,54 @@ class NativeServiceClient(
 
     /** Write IPC frame to socket: 4-byte big-endian length + JSON payload. */
     private suspend fun writeFrame(msg: IpcMessage) =
-        socketMutex.withLock {
-            val socket = ipcSocket ?: throw IOException("Socket not connected")
+            writeMutex.withLock {
+                val socket = ipcSocket ?: throw IOException("Socket not connected")
 
-            val jsonString = serializeMessage(msg)
-            val jsonBytes = jsonString.toByteArray(StandardCharsets.UTF_8)
+                val jsonString = serializeMessage(msg)
+                val jsonBytes = jsonString.toByteArray(StandardCharsets.UTF_8)
 
-            if (jsonBytes.size > MAX_FRAME_SIZE) {
-                throw IOException("Message too large: ${jsonBytes.size} > $MAX_FRAME_SIZE")
+                if (jsonBytes.size > MAX_FRAME_SIZE) {
+                    throw IOException("Message too large: ${jsonBytes.size} > $MAX_FRAME_SIZE")
+                }
+
+                val frame = frameData(jsonBytes)
+                // LocalSocket.outputStream is non-null in practice — fail loudly if it isn't.
+                socket.outputStream!!.write(frame)
+                socket.outputStream!!.flush()
             }
 
-            val frame = frameData(jsonBytes)
-            socket.outputStream?.write(frame)
-            socket.outputStream?.flush()
+    /**
+     * Read IPC frame from socket: 4-byte big-endian length + JSON payload. Called only from the
+     * single-consumer read loop, so no synchronization is needed.
+     */
+    private fun readFrame(): IpcMessage {
+        val socket = ipcSocket ?: throw IOException("Socket not connected")
+        val input = socket.inputStream ?: throw IOException("No input stream")
+
+        val lenBytes = ByteArray(4)
+        var totalRead = 0
+        while (totalRead < 4) {
+            val n = input.read(lenBytes, totalRead, 4 - totalRead)
+            if (n == -1) throw EOFException("socket closed reading frame length")
+            totalRead += n
         }
 
-    /** Read IPC frame from socket: 4-byte big-endian length + JSON payload. */
-    private suspend fun readFrame(): IpcMessage =
-        socketMutex.withLock {
-            val socket = ipcSocket ?: throw IOException("Socket not connected")
-            val input = socket.inputStream ?: throw IOException("No input stream")
-
-            val lenBytes = ByteArray(4)
-            input.readNBytes(lenBytes, 0, 4)
-            if (lenBytes.isEmpty()) {
-                throw IOException("Socket closed or read failed")
-            }
-
-            val length = lenBytes.toInt()
-            if (length <= 0 || length > MAX_FRAME_SIZE) {
-                throw IOException("Invalid frame length: $length")
-            }
-
-            val payload = ByteArray(length)
-            input.readNBytes(payload, 0, length)
-
-            val json = String(payload, StandardCharsets.UTF_8)
-            deserializeMessage(json)
+        val length = lenBytes.toInt()
+        if (length <= 0 || length > MAX_FRAME_SIZE) {
+            throw IOException("Invalid frame length: $length")
         }
+
+        val payload = ByteArray(length)
+        var bodyRead = 0
+        while (bodyRead < length) {
+            val n = input.read(payload, bodyRead, length - bodyRead)
+            if (n == -1) throw EOFException("socket closed reading frame body ($bodyRead/$length)")
+            bodyRead += n
+        }
+
+        val jsonString = String(payload, StandardCharsets.UTF_8)
+        return deserializeMessage(jsonString)
+    }
 
     /** Add 4-byte big-endian length prefix to data. */
     private fun frameData(data: ByteArray): ByteArray {
@@ -337,12 +370,12 @@ class NativeServiceClient(
     /** Serialize IpcMessage to JSON. */
     private fun serializeMessage(msg: IpcMessage): String {
         val dto =
-            IpcMessageDto(
-                correlation_id = msg.correlationId,
-                command = msg.command,
-                payload = String(msg.payload, StandardCharsets.UTF_8),
-                timestamp = msg.timestamp,
-            )
+                IpcMessageDto(
+                        correlation_id = msg.correlationId,
+                        command = msg.command,
+                        payload = String(msg.payload, StandardCharsets.UTF_8),
+                        timestamp = msg.timestamp,
+                )
         return json.encodeToString(IpcMessageDto.serializer(), dto)
     }
 
@@ -350,10 +383,10 @@ class NativeServiceClient(
     private fun deserializeMessage(jsonString: String): IpcMessage {
         val dto = json.decodeFromString(IpcMessageDto.serializer(), jsonString)
         return IpcMessage(
-            correlationId = dto.correlation_id,
-            command = dto.command,
-            payload = dto.payload.toByteArray(StandardCharsets.UTF_8),
-            timestamp = dto.timestamp,
+                correlationId = dto.correlation_id,
+                command = dto.command,
+                payload = dto.payload.toByteArray(StandardCharsets.UTF_8),
+                timestamp = dto.timestamp,
         )
     }
 
@@ -361,54 +394,62 @@ class NativeServiceClient(
     private fun startHeartbeat() {
         keepaliveJob?.cancel()
         keepaliveJob =
-            scope.launch {
-                while (isActive) {
-                    delay(HEARTBEAT_INTERVAL_MS)
+                scope.launch {
+                    while (coroutineContext.isActive) {
+                        delay(HEARTBEAT_INTERVAL_MS)
 
-                    try {
-                        val ping =
-                            IpcMessage(
-                                correlationId = UUID.randomUUID().toString(),
-                                command = "ping",
-                                payload = ByteArray(0),
-                                timestamp = System.currentTimeMillis(),
-                            )
+                        try {
+                            val ping =
+                                    IpcMessage(
+                                            correlationId = UUID.randomUUID().toString(),
+                                            command = "ping",
+                                            payload = ByteArray(0),
+                                            timestamp = System.currentTimeMillis(),
+                                    )
 
-                        writeFrame(ping)
+                            // Install pong waiter BEFORE writing so we cannot miss a fast response.
+                            val deferred = CompletableDeferred<Unit>()
+                            pongDeferred = deferred
 
-                        // Wait up to 5 seconds for pong
-                        pingTimeoutJob =
-                            scope.launch {
-                                delay(PONG_TIMEOUT_MS)
-                                if (pingTimeoutJob?.isActive == true) {
-                                    // Timeout; reconnect
-                                    onSocketFailure(Exception("Ping timeout"))
-                                }
+                            writeFrame(ping)
+
+                            val received = withTimeoutOrNull(PONG_TIMEOUT_MS) { deferred.await() }
+                            pongDeferred = null
+
+                            if (received == null) {
+                                // Timeout; reconnect
+                                onSocketFailure(IOException("Ping timeout"))
+                                break
                             }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed to send keepalive ping: ${e.message}")
-                        onSocketFailure(e)
-                        break
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to send keepalive ping: ${e.message}")
+                            pongDeferred = null
+                            onSocketFailure(e)
+                            break
+                        }
                     }
                 }
-            }
     }
 
-    /** Start read loop to receive incoming messages from socket. */
-    private fun startReadLoop() {
+    /**
+     * Start read loop to receive incoming messages from socket. Completes [ready] as soon as the
+     * loop coroutine is running so callers can be sure the reader is up before emitting Connected.
+     */
+    private fun startReadLoop(ready: CompletableDeferred<Unit>) {
         readLoopJob?.cancel()
         readLoopJob =
-            scope.launch {
-                try {
-                    while (isActive) {
-                        val msg = readFrame()
-                        handleIncomingMessage(msg)
+                scope.launch {
+                    ready.complete(Unit)
+                    try {
+                        while (coroutineContext.isActive) {
+                            val msg = readFrame()
+                            handleIncomingMessage(msg)
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Read loop failed: ${e.message}")
+                        onSocketFailure(e)
                     }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Read loop failed: ${e.message}")
-                    onSocketFailure(e)
                 }
-            }
     }
 
     /** Handle incoming message: route to pending request or handle built-in commands. */
@@ -423,19 +464,18 @@ class NativeServiceClient(
         // Handle built-in commands
         when (msg.command) {
             "pong" -> {
-                // Keepalive pong received; cancel timeout
-                pingTimeoutJob?.cancel()
-                pingTimeoutJob = null
+                // Keepalive pong received; unblock the waiter.
+                pongDeferred?.complete(Unit)
             }
             "ping" -> {
                 // Echo ping with pong
                 val pong =
-                    IpcMessage(
-                        correlationId = msg.correlationId,
-                        command = "pong",
-                        payload = ByteArray(0),
-                        timestamp = System.currentTimeMillis(),
-                    )
+                        IpcMessage(
+                                correlationId = msg.correlationId,
+                                command = "pong",
+                                payload = ByteArray(0),
+                                timestamp = System.currentTimeMillis(),
+                        )
                 writeFrame(pong)
             }
             else -> {
@@ -448,11 +488,11 @@ class NativeServiceClient(
     /** Drain message queue and send to socket (non-blocking, fire-and-forget). */
     private suspend fun drainQueue() {
         val messagesToSend =
-            queueMutex.withLock {
-                val msgs = ipcQueue.toList()
-                ipcQueue.clear()
-                msgs
-            }
+                queueMutex.withLock {
+                    val msgs = ipcQueue.toList()
+                    ipcQueue.clear()
+                    msgs
+                }
 
         for (msg in messagesToSend) {
             try {
@@ -472,10 +512,10 @@ class NativeServiceClient(
 
 /** Internal representation of IPC message. */
 internal data class IpcMessage(
-    val correlationId: String,
-    val command: String,
-    val payload: ByteArray,
-    val timestamp: Long,
+        val correlationId: String,
+        val command: String,
+        val payload: ByteArray,
+        val timestamp: Long,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -498,9 +538,9 @@ internal data class IpcMessage(
 
 /** Backoff policy for socket reconnection attempts (reuses RelayService pattern). */
 data class ReconnectPolicy(
-    val maxAttempts: Int = 5,
-    val baseDelayMs: Long = 1000, // 1s initial backoff
-    val maxDelayMs: Long = 32000, // 32s cap
+        val maxAttempts: Int = 5,
+        val baseDelayMs: Long = 1000, // 1s initial backoff
+        val maxDelayMs: Long = 32000, // 32s cap
 ) {
     /**
      * Compute delay in milliseconds for a given retry attempt. Uses formula: baseDelayMs * (2 ^
@@ -519,42 +559,27 @@ data class ReconnectPolicy(
 /** DTOs for JSON serialization (length-prefixed IPC frames). */
 @Serializable
 internal data class IpcMessageDto(
-    val correlation_id: String,
-    val command: String,
-    val payload: String, // base64 or raw string depending on command
-    val timestamp: Long,
+        val correlation_id: String,
+        val command: String,
+        val payload: String, // base64 or raw string depending on command
+        val timestamp: Long,
 )
 
 @Serializable internal data class RegisterHardwareResponseDto(val device_id: String)
 
 @Serializable
 internal data class ActivationStatusDto(
-    val status: String, // "activated" | "pending" | "failed"
-    val public_key: String? = null, // base64-encoded RSA public key (if activated)
-    val attempt: Int? = null,
-    val next_poll_in: Long? = null,
-    val error: String? = null,
+        val status: String, // "activated" | "pending" | "failed"
+        val public_key: String? = null, // base64-encoded RSA public key (if activated)
+        val attempt: Int? = null,
+        val next_poll_in: Long? = null,
+        val error: String? = null,
 )
-
-/** Extension to read exact number of bytes from InputStream. */
-private fun java.io.InputStream.readNBytes(
-    b: ByteArray,
-    off: Int,
-    len: Int,
-): Int {
-    var n = 0
-    while (n < len) {
-        val count = this.read(b, off + n, len - n)
-        if (count < 0) break
-        n += count
-    }
-    return n
-}
 
 /** Convert 4-byte array to big-endian Int. */
 private fun ByteArray.toInt(): Int {
     return ((this[0].toInt() and 0xFF) shl 24) or
-        ((this[1].toInt() and 0xFF) shl 16) or
-        ((this[2].toInt() and 0xFF) shl 8) or
-        (this[3].toInt() and 0xFF)
+            ((this[1].toInt() and 0xFF) shl 16) or
+            ((this[2].toInt() and 0xFF) shl 8) or
+            (this[3].toInt() and 0xFF)
 }
