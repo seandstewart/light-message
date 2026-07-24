@@ -19,6 +19,7 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.*
@@ -81,7 +82,7 @@ class BackgroundSyncIntegrationTest {
                                         .setRequiredNetworkType(NetworkType.CONNECTED)
                                         .build(),
                         )
-                        .setBackoffPolicy(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.MINUTES)
+                        .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.MINUTES)
                         .build()
 
         workManager.enqueueUniquePeriodicWork(
@@ -215,7 +216,7 @@ class BackgroundSyncIntegrationTest {
     @Test
     fun testSyncRequest() {
         // Setup: Mock relay service with sync capability
-        whenever(mockRelayService.requestSync()).thenReturn(Result.success(Unit))
+        runBlocking { whenever(mockRelayService.requestSync()).thenReturn(Result.success(Unit)) }
 
         // Step 1: Call requestSync on relay
         val syncResult = runBlocking { mockRelayService.requestSync() }
@@ -295,21 +296,5 @@ class BackgroundSyncIntegrationTest {
         // This prevents retry and breaks the sync loop
         val errorMessage = insertResult.exceptionOrNull()?.message ?: "Unknown error"
         assertTrue("Error should be from DB constraint", insertResult.isFailure)
-    }
-
-    // ========== Helper Methods ==========
-
-    /** Get first element from Flow (test helper) */
-    private suspend inline fun <reified T> kotlinx.coroutines.flow.Flow<T?>.first(): T? {
-        var result: T? = null
-        this.collect { result = it }
-        return result
-    }
-
-    /** Get first list element from Flow (test helper) */
-    private suspend inline fun <reified T> kotlinx.coroutines.flow.Flow<List<T>>.first(): List<T> {
-        var result: List<T>? = null
-        this.collect { result = it }
-        return result ?: emptyList()
     }
 }

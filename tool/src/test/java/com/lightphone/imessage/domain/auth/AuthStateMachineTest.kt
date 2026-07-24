@@ -8,6 +8,7 @@ import com.lightphone.imessage.data.relay.IRelayHttpClient
 import com.lightphone.imessage.data.relay.LoginResponse
 import com.lightphone.imessage.data.relay.SessionResponse
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
@@ -552,9 +553,10 @@ class AuthStateMachineTest {
         val machine = createAuthStateMachine()
         val states = mutableListOf<AuthState>()
 
-        testScope.launch { machine.getState().collect { state -> states.add(state) } }
+        val collectJob = this.launch { machine.getState().collect { state -> states.add(state) } }
 
         machine.requestLogin(AppleId("test@icloud.com"), "password123")
+        collectJob.cancel()
 
         assertTrue("State flow must emit initial Idle state", states.contains(AuthState.Idle))
         assertTrue(
