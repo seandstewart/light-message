@@ -20,11 +20,13 @@ interface ThreadDao {
 
     @Delete suspend fun delete(thread: ThreadEntity)
 
-    @Query("DELETE FROM threads WHERE id = :threadId")
-    suspend fun deleteById(threadId: String)
+    @Query("DELETE FROM threads WHERE id = :threadId") suspend fun deleteById(threadId: String)
 
     @Query("SELECT * FROM threads WHERE id = :threadId")
     fun getById(threadId: String): Flow<ThreadEntity?>
+
+    @Query("SELECT EXISTS(SELECT 1 FROM threads WHERE id = :threadId)")
+    suspend fun existsById(threadId: String): Boolean
 
     @Query("SELECT * FROM threads ORDER BY lastTimestamp DESC")
     fun getAll(): Flow<List<ThreadEntity>>
@@ -36,11 +38,11 @@ interface ThreadDao {
     suspend fun markRead(threadId: String)
 
     @Query(
-        "UPDATE threads SET lastMessage = :lastMessage, lastTimestamp = :timestamp WHERE id = :threadId",
+            "UPDATE threads SET lastMessage = :lastMessage, lastTimestamp = :timestamp WHERE id = :threadId",
     )
     suspend fun updateLastMessage(
-        threadId: String,
-        lastMessage: String,
-        timestamp: Long,
+            threadId: String,
+            lastMessage: String,
+            timestamp: Long,
     )
 }

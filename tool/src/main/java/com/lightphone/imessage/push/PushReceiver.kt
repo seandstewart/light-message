@@ -5,14 +5,17 @@ import android.content.Context
 import android.content.Intent
 import android.util.Base64
 import android.util.Log
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.Data
+import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import com.lightphone.imessage.domain.push.PushMessage
+import java.util.concurrent.TimeUnit
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import java.util.concurrent.TimeUnit
 
 /**
  * BroadcastReceiver for UnifiedPush notifications from rustpush.
@@ -28,8 +31,8 @@ import java.util.concurrent.TimeUnit
  */
 class PushReceiver : BroadcastReceiver() {
     override fun onReceive(
-        context: Context,
-        intent: Intent,
+            context: Context,
+            intent: Intent,
     ) {
         Log.d(TAG, "Push received: ${intent.action}")
 
@@ -41,20 +44,20 @@ class PushReceiver : BroadcastReceiver() {
 
         // Extract UnifiedPush payload
         val payload =
-            intent.getStringExtra("message")
-                ?: run {
-                    Log.w(TAG, "Received push with no message payload")
-                    return
-                }
+                intent.getStringExtra(EXTRA_MESSAGE)
+                        ?: run {
+                            Log.w(TAG, "Received push with no message payload")
+                            return
+                        }
 
         // Parse JSON payload
         val pushMessage =
-            try {
-                parsePushPayload(payload)
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to parse push payload: ${e.message}", e)
-                return
-            }
+                try {
+                    parsePushPayload(payload)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to parse push payload: ${e.message}", e)
+                    return
+                }
 
         // Enqueue async processing via WorkManager
         enqueuePushProcessing(context, pushMessage)
@@ -80,16 +83,17 @@ class PushReceiver : BroadcastReceiver() {
     private fun parsePushPayload(json: String): PushMessage {
         val dto = Json.decodeFromString(PushPayloadDto.serializer(), json)
 
-        // Decode base64 envelope
+        // Decode base64 envelope. Pin to NO_WRAP to match the rustpush emitter — DEFAULT would
+        // silently accept newline-wrapped input and could mask corruption.
         val envelopeBytes =
-            Base64.decode(dto.envelope, Base64.DEFAULT)
-                ?: throw IllegalArgumentException("Invalid base64 envelope")
+                Base64.decode(dto.envelope, Base64.NO_WRAP)
+                        ?: throw IllegalArgumentException("Invalid base64 envelope")
 
         return PushMessage(
-            messageId = dto.message_id,
-            sender = dto.sender,
-            timestamp = dto.timestamp,
-            envelope = envelopeBytes,
+                messageId = dto.message_id,
+                sender = dto.sender,
+                timestamp = dto.timestamp,
+                envelope = envelopeBytes,
         )
     }
 
@@ -98,36 +102,42 @@ class PushReceiver : BroadcastReceiver() {
      * WorkManager to avoid ANR and handle retries.
      */
     private fun enqueuePushProcessing(
-        context: Context,
-        pushMessage: PushMessage,
+            context: Context,
+            pushMessage: PushMessage,
     ) {
         val workData =
-            Data.Builder()
-                .putString("messageId", pushMessage.messageId)
-                .putString("sender", pushMessage.sender)
-                .putLong("timestamp", pushMessage.timestamp)
-                .putByteArray("envelope", pushMessage.envelope)
-                .build()
+                Data.Builder()
+                        .putString("messageId", pushMessage.messageId)
+                        .putString("sender", pushMessage.sender)
+                        .putLong("timestamp", pushMessage.timestamp)
+                        .putByteArray("envelope", pushMessage.envelope)
+                        .build()
 
         val constraints =
-            Constraints.Builder()
-                // Don't require network for local persistence
-                .build()
+                Constraints.Builder()
+                        // Don't require network for local persistence
+                        .build()
 
         val pushProcessingRequest =
-            OneTimeWorkRequestBuilder<PushProcessingWorker>()
-                .setInputData(workData)
-                .setConstraints(constraints)
-                .setInitialDelay(0, TimeUnit.SECONDS)
-                .addTag(WORK_TAG_PUSH_PROCESSING)
-                .build()
+                OneTimeWorkRequestBuilder<PushProcessingWorker>()
+                        .setInputData(workData)
+                        .setConstraints(constraints)
+                        .setInitialDelay(0, TimeUnit.SECONDS)
+                        // Expedited so Doze can't defer push processing indefinitely; falls back to
+                        // regular work if the app is out of expedited quota.
+                        .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                        .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                        .addTag(WORK_TAG_PUSH_PROCESSING)
+                        .build()
 
         WorkManager.getInstance(context)
-            .enqueueUniqueWork(
-                "push_${pushMessage.messageId}",
-                androidx.work.ExistingWorkPolicy.REPLACE,
-                pushProcessingRequest,
-            )
+                .enqueueUniqueWork(
+                        "push_${pushMessage.messageId}",
+                        // KEEP (not REPLACE) — duplicate pushes for the same messageId should be
+                        // no-ops rather than cancelling the in-flight worker.
+                        ExistingWorkPolicy.KEEP,
+                        pushProcessingRequest,
+                )
 
         Log.d(TAG, "Enqueued push processing: ${pushMessage.messageId}")
     }
@@ -135,16 +145,17 @@ class PushReceiver : BroadcastReceiver() {
     /** DTO for JSON payload deserialization (matches rustpush format). */
     @Serializable
     private data class PushPayloadDto(
-        val message_id: String,
-        val sender: String,
-        val timestamp: Long,
-        val envelope: String, // base64
+            val message_id: String,
+            val sender: String,
+            val timestamp: Long,
+            val envelope: String, // base64
     )
 
     companion object {
         private const val TAG = "PushReceiver"
         private const val ACTION_REGISTRATION_RESULT =
-            "org.unifiedpush.android.distributor.REGISTRATION_RESULT"
+                "org.unifiedpush.android.distributor.REGISTRATION_RESULT"
         private const val WORK_TAG_PUSH_PROCESSING = "push_processing"
+        private const val EXTRA_MESSAGE = "message"
     }
 }
