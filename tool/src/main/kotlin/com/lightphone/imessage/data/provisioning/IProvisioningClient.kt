@@ -1,12 +1,17 @@
-package com.lightphone.imessage.data.native
+package com.lightphone.imessage.data.provisioning
 
 /**
- * Interface for communicating with the native hardware provisioning service.
+ * HTTPS client interface for the hardware provisioning / activation endpoint.
  *
- * This is typically implemented by the Rust native service (rustpush) and handles hardware
- * registration, certificate management, and push notification setup.
+ * Handles registering a device with the relay after successful 2FA and polling Apple's servers for
+ * activation status. Distinct from `domain.native.INativeServiceClient`, which speaks to a local
+ * IPC (Unix domain) socket exposed by the Rust native service.
+ *
+ * TODO(provisioning): no production implementation exists yet — only test mocks reference this
+ * interface today. Wire up a real HTTP client (OkHttp / Ktor) once the provisioning endpoint spec
+ * is finalized. Tracked as a known gap outside of the auth-refactor scope.
  */
-interface INativeServiceClient {
+interface IProvisioningClient {
     /**
      * Registers the hardware device with the relay after successful 2FA.
      *
@@ -21,8 +26,8 @@ interface INativeServiceClient {
      * @return Result containing device certificate/ID or error details
      */
     suspend fun registerHardware(
-        sessionToken: String,
-        email: String,
+            sessionToken: String,
+            email: String,
     ): Result<HardwareInfo>
 
     /**
@@ -35,9 +40,9 @@ interface INativeServiceClient {
      * @return Result containing activation confirmation or timeout/error
      */
     suspend fun pollActivationStatus(
-        deviceId: String,
-        maxAttempts: Int = 30,
-        pollIntervalMs: Long = 1000,
+            deviceId: String,
+            maxAttempts: Int = 30,
+            pollIntervalMs: Long = 1000,
     ): Result<ActivationStatus>
 }
 

@@ -1,12 +1,18 @@
 package com.lightphone.imessage.data.relay
 
 /**
- * HTTP client interface for communicating with the relay (Apple ID) servers.
+ * HTTPS client interface for communicating with the relay (Apple ID) servers for login /
+ * credential-exchange endpoints. Distinct from `domain.relay.IRelayService`, which is the
+ * WebSocket-based messaging transport.
  *
  * This interface abstracts the HTTP layer and is implemented separately. See TASK_006 for
  * implementation details.
+ *
+ * TODO(relay-http): no production implementation exists yet — only test mocks reference this
+ * interface today. Wire up a real HTTP client once the login endpoint spec is finalized. Known gap
+ * tracked outside of the auth-refactor scope.
  */
-interface IRelayClient {
+interface IRelayHttpClient {
     /**
      * Authenticates with Apple ID credentials.
      *
@@ -15,8 +21,8 @@ interface IRelayClient {
      * @return Result containing either a LoginResponse or error details
      */
     suspend fun loginWithCredentials(
-        email: String,
-        password: String,
+            email: String,
+            password: String,
     ): Result<LoginResponse>
 
     /**
@@ -27,8 +33,8 @@ interface IRelayClient {
      * @return Result containing either a SessionResponse or error details
      */
     suspend fun submitTwoFactor(
-        challenge: String,
-        code: String,
+            challenge: String,
+            code: String,
     ): Result<SessionResponse>
 
     /**

@@ -1,9 +1,9 @@
 package com.lightphone.imessage.domain.auth
 
 import com.lightphone.imessage.data.datastore.ITokenRepository
-import com.lightphone.imessage.data.native.ActivationStatus
-import com.lightphone.imessage.data.native.INativeServiceClient
-import com.lightphone.imessage.data.relay.IRelayClient
+import com.lightphone.imessage.data.provisioning.ActivationStatus
+import com.lightphone.imessage.data.provisioning.IProvisioningClient
+import com.lightphone.imessage.data.relay.IRelayHttpClient
 import com.lightphone.imessage.data.relay.LoginResponse
 import kotlin.math.min
 import kotlinx.coroutines.CoroutineScope
@@ -34,8 +34,8 @@ import kotlinx.coroutines.sync.withLock
  */
 class AuthStateMachine(
         private val tokenRepository: ITokenRepository,
-        private val relayClient: IRelayClient,
-        private val nativeClient: INativeServiceClient,
+        private val relayClient: IRelayHttpClient,
+        private val nativeClient: IProvisioningClient,
         private val scope: CoroutineScope,
 ) {
     private val _state = MutableStateFlow<AuthState>(AuthState.Idle)
