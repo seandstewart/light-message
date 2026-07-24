@@ -10,6 +10,8 @@ plugins {
 android {
     namespace = "com.lightos.imessage"
     compileSdk = 36
+    // Match NDK provisioned by mise (ANDROID_NDK_VERSION in mise.toml);
+    // AGP default NDK version is not installed.
     ndkVersion = System.getenv("ANDROID_NDK_VERSION") ?: "25.2.9519653"
 
     defaultConfig {
@@ -36,6 +38,10 @@ android {
 
     packaging {
         jniLibs {
+            // The rustpush native service is packaged as librustpush_service.so
+            // but is a standalone executable. Legacy (uncompressed, extracted)
+            // packaging is required so NativeServiceLauncher can run it from
+            // nativeLibraryDir.
             useLegacyPackaging = true
         }
     }
@@ -51,12 +57,14 @@ kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarg
 dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib:2.3.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:1.8.1")
     implementation("androidx.activity:activity-compose:1.9.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.3")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.3")
     implementation("androidx.annotation:annotation:1.8.0")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("androidx.datastore:datastore:1.1.1")
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.1")
     implementation("org.jetbrains.kotlinx:kotlinx-io-core:0.5.1")
