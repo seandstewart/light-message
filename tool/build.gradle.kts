@@ -10,8 +10,6 @@ plugins {
 android {
     namespace = "com.lightos.imessage"
     compileSdk = 36
-    // Match NDK provisioned by mise (ANDROID_NDK_VERSION in mise.toml);
-    // AGP default NDK version is not installed.
     ndkVersion = System.getenv("ANDROID_NDK_VERSION") ?: "25.2.9519653"
 
     defaultConfig {
@@ -22,6 +20,7 @@ android {
         versionName = "1.0"
 
         ndk { abiFilters += setOf("arm64-v8a") }
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
@@ -38,10 +37,6 @@ android {
 
     packaging {
         jniLibs {
-            // The rustpush native service is packaged as librustpush_service.so
-            // but is a standalone executable. Legacy (uncompressed, extracted)
-            // packaging is required so NativeServiceLauncher can run it from
-            // nativeLibraryDir.
             useLegacyPackaging = true
         }
     }
@@ -82,7 +77,20 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.9.0")
     implementation("androidx.startup:startup-runtime:1.1.1")
 
+    testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlin:kotlin-test:2.3.0")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    testImplementation("org.mockito.kotlin:mockito-kotlin:5.4.0")
+    testImplementation("org.mockito:mockito-core:5.12.0")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    testImplementation("org.bouncycastle:bcpkix-jdk18on:1.78.1")
+
+    androidTestImplementation("androidx.test:core:1.6.1")
+    androidTestImplementation("androidx.test:runner:1.6.1")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.work:work-testing:2.9.0")
+    androidTestImplementation("org.mockito.kotlin:mockito-kotlin:5.4.0")
+    androidTestImplementation("org.mockito:mockito-android:5.12.0")
 }
 
 kotlinter {
