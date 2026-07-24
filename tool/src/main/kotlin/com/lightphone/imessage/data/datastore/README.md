@@ -2,12 +2,13 @@
 
 ## Overview
 
-This package provides encrypted storage for sensitive authentication credentials and key material via Android's DataStore preferences system, with AES-256-GCM encryption enforced by the `CryptoEngine`.
+This package provides encrypted storage for sensitive authentication credentials and key material. Persistence today is via [`androidx.security.crypto.EncryptedSharedPreferences`][esp] with an AES-256-GCM master key resident in the AndroidKeyStore.
+
+[esp]: https://developer.android.com/reference/androidx/security/crypto/EncryptedSharedPreferences
 
 ## Files
 
-- **`EncryptedTokenRepository.kt`** — Main implementation of `ITokenRepository` interface
-- **`../../../proto/com/lightphone/imessage/token.proto`** — Protocol Buffer schema (reference; currently using preference-key strategy)
+- **`EncryptedTokenRepository.kt`** — Main implementation of `ITokenRepository`.
 
 ## Architecture
 
@@ -36,129 +37,80 @@ interface ITokenRepository {
 
 ### EncryptedTokenRepository Implementation
 
-- **Master Key Generation**: Uses `CryptoEngine.generateAesKey()` to create a 256-bit AES key
-  - Current implementation stores key in-memory only
-  - **TODO**: Integrate with Android Keystore for persistent, hardware-backed key derivation
+- **Master key**: A hardware-backed AES-256-GCM master key is created lazily by `MasterKey.Builder(context).setKeyScheme(AES256_GCM).build()`. The key lives in the AndroidKeyStore under the default alias `_androidx_security_master_key_` and survives app/process restarts.
 
-- **Data Encryption**: All sensitive data encrypted via AES-256-GCM with:
-  - Random 12-byte IV per encryption
-  - Base64 encoding for preference storage
-  - Separate storage of IV alongside ciphertext
+- **At-rest encryption**: All values are encrypted transparently by `EncryptedSharedPreferences` — pref keys with AES-256-SIV, pref values with AES-256-GCM. The library manages IVs, auth tags, and key rotation internally.
 
-- **Storage Strategy**:
-  - Uses `androidx.datastore.preferences.preferencesDataStore`
-  - Preference keys follow pattern: `KEY_*` for data, `*_IV` for initialization vectors
-  - Private keys stored as PKCS#8 DER-encoded bytes
-  - Session tokens stored as UTF-8 strings with expiration check
+- **Storage layout**: A single `SharedPreferences` file, `encrypted_tokens.xml`, in the app's default preferences directory. Fields:
 
-- **Coroutine Safety**:
-  - All I/O operations dispatch to `Dispatchers.IO`
-  - Uses `withContext()` for proper cancellation and exception handling
-  - Compatible with structured concurrency
+  | Field                     | Type        | Notes                                      |
+  | ------------------------- | ----------- | ------------------------------------------ |
+  | `session_token`           | `String`    | Encrypted session token                    |
+  | `session_expires`         | `Long`      | Expiration timestamp (ms since epoch)      |
+  | `apple_id`                | `String`    | Encrypted Apple ID                         |
+  | `hardware_info`           | `String`    | Base64-encoded raw bytes, then encrypted   |
+  | `private_key_ids`         | `StringSet` | Set of stored keyIds                       |
+  | `private_key.<keyId>`     | `String`    | PKCS#8 DER, base64-encoded, then encrypted |
+  | `private_key_alg.<keyId>` | `String`    | JCA algorithm name (`"RSA"`, `"EC"`, …)    |
+
+- **keyId validation**: `keyId` must match `[A-Za-z0-9_-]{1,64}`. Enforced on save, delete, and get. `listPrivateKeys` additionally filters out entries that fail the pattern.
+
+- **Coroutine safety**: All operations dispatch to `Dispatchers.IO` via `withContext`.
 
 ## Security Notes
 
 ### Current State
-- ✅ AES-256-GCM encryption for data at rest
-- ✅ Unique IV per encryption operation
-- ✅ PKCS#8 DER encoding for RSA private keys
-- ✅ Session token expiration validation
-- ⚠️ Master key stored in-memory only (ephemeral)
 
-### Future Hardening
-1. **Android Keystore Integration**
-   - Use `KeyStore` (type: "AndroidKeyStore") for master key
-   - Enable Hardware-Backed encryption if available
-   - Implement key attestation
+- Master key is generated inside the AndroidKeyStore and never leaves it. On devices with a TEE / StrongBox the underlying `androidx.security` implementation binds the key to hardware.
+- Data at rest is authenticated (AES-GCM) — corruption or tampering causes read failures rather than silent misdecryption.
+- Session tokens have an explicit expiration timestamp and are treated as absent once expired.
+- Private keys are stored as PKCS#8 DER bytes alongside their JCA algorithm name so the correct `KeyFactory` can rebuild them.
+- Read paths that raise on `EncryptedSharedPreferences` (e.g. after master-key invalidation from biometric enrollment change) best-effort clear the affected record. This prevents an unrecoverable read loop and lets callers re-run the sign-in flow.
+- keyIds are charset-restricted so a malicious identifier cannot escape into or collide with reserved pref keys.
 
-2. **Auth Tag Storage**
-   - Currently using dummy 16-byte tags
-   - Should store actual auth tags from GCM encryption
-   - Enables full authentication verification on decryption
+### Known trade-offs
 
-3. **Secure Key Derivation**
-   - Implement PBKDF2 or similar for password-based master key derivation
-   - Support for user authentication challenges
-
-## Serialization Details
-
-| Data Type | Format | Encryption | Notes |
-|-----------|--------|------------|-------|
-| Session Token | UTF-8 string | AES-256-GCM | Includes expiration timestamp |
-| Private Key | PKCS#8 DER bytes | AES-256-GCM | RSA keys only (PrivateKey.encoded) |
-| Apple ID | UTF-8 string | AES-256-GCM | Plain string |
-| Hardware Info | Raw ByteArray | AES-256-GCM | Binary blob |
+- **Heap exposure.** `getString` returns a Kotlin `String`, which lives on the JVM heap for the lifetime of the reference. Callers that want tighter control over lifetime would need a different storage layer (e.g. Keystore-only, `CharArray`-based API).
+- **No key rotation.** The AndroidKeyStore master key is not rotated by this class. If we later need rotation, either introduce a versioned alias (`master_key_v2`) with a migration step, or delete `encrypted_tokens.xml` and force sign-in.
+- **Alpha dependency.** `androidx.security:security-crypto` is currently at `1.1.0-alpha06`. Track its stability before shipping to production.
 
 ## Error Handling
 
-All operations return `Result<T>` for graceful error propagation:
+All operations return `Result<T>`:
 
 ```kotlin
-when (val result = repository.getSessionToken()) {
-    is Result.Success -> {
-        val token = result.getOrNull()  // May be null if expired/not found
-        // Use token
-    }
-    is Result.Failure -> {
-        // Handle encryption/storage errors
-        val error = result.exceptionOrNull()
-    }
-}
+repository.getSessionToken()
+    .onSuccess { token -> /* token may be null if expired or missing */ }
+    .onFailure { error -> /* keystore or storage failure */ }
 ```
+
+Failures preserve the original exception as the cause; error messages from callers should not concatenate `error.message` because sensitive material could leak through it.
 
 ## Usage Example
 
 ```kotlin
-val context = applicationContext
-val cryptoEngine = CryptoEngine()
-val repo = EncryptedTokenRepository(context, cryptoEngine)
+val repo = EncryptedTokenRepository(applicationContext)
 
 // Save session token with 1-hour expiration
-val expiresAt = System.currentTimeMillis() + 3600000L
-repo.saveSessionToken("my_auth_token", expiresAt).onSuccess {
-    Log.d("TokenRepo", "Token saved")
-}.onFailure { error ->
-    Log.e("TokenRepo", "Failed to save token", error)
-}
+val expiresAt = System.currentTimeMillis() + 3_600_000L
+repo.saveSessionToken("my_auth_token", expiresAt)
+    .onFailure { Log.e("TokenRepo", "save failed", it) }
 
-// Retrieve token (returns null if expired)
+// Retrieve token (returns null if expired or absent)
 val token = repo.getSessionToken().getOrNull()
 
-// Store private key
-val (pub, priv) = cryptoEngine.generateRsaKeyPair()
-repo.savePrivateKey(priv, "device_key_v1").onSuccess {
-    Log.d("TokenRepo", "Key stored")
-}
+// Store an RSA private key
+val (_, priv) = cryptoEngine.generateRsaKeyPair()
+repo.savePrivateKey(priv, "device_key_v1")
 
-// Retrieve and use key
+// Load it back
 val key = repo.getPrivateKey("device_key_v1").getOrNull()
-if (key != null) {
-    // Use key for signing/decryption
-}
 ```
 
 ## Testing Considerations
 
-When writing tests:
-1. Mock `CryptoEngine` or provide test instance
-2. Mock DataStore or use `TestDataStore` utilities
-3. Verify encryption/decryption round-trip
-4. Test expiration logic for session tokens
-5. Verify error handling paths
-
-## Protocol Buffer (Reference)
-
-The `token.proto` file defines the schema for future migration to protobuf-based storage. Currently, the implementation uses preference-key strategy for simplicity. To migrate:
-
-1. Enable protobuf code generation in `build.gradle.kts`
-2. Update repository to serialize/deserialize `TokenStore` messages
-3. Store single `TokenStore` proto in DataStore instead of individual keys
-
-## TODO
-
-- [ ] Android Keystore integration for master key
-- [ ] Auth tag validation on decryption
-- [ ] Keystore-backed private key storage (if available)
-- [ ] Migration path from preference-key to protobuf storage
-- [ ] Rate-limiting for failed decryption attempts
-- [ ] Optional encryption key rotation
+1. Interact via `ITokenRepository` in production code and mock the interface in unit tests.
+2. Instrumented tests can exercise `EncryptedTokenRepository` directly with an `androidx.test` `Context`.
+3. Round-trip each field type after a simulated process restart (recreate the repository instance) to confirm persistence.
+4. Verify expiration semantics for session tokens (both past and future `expiresAt`).
+5. Verify that decryption failures clear the affected record and surface `Result.failure` with the original exception cause.

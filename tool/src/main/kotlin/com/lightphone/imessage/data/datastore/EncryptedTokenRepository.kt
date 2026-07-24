@@ -1,18 +1,15 @@
 package com.lightphone.imessage.data.datastore
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.util.Base64
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
-import com.lightphone.imessage.domain.crypto.CryptoEngine
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.withContext
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import java.security.KeyFactory
 import java.security.PrivateKey
 import java.security.spec.PKCS8EncodedKeySpec
-import javax.crypto.SecretKey
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Repository interface for encrypted session token and private key storage. All operations are
@@ -26,8 +23,8 @@ interface ITokenRepository {
      * @return Result indicating success or containing error details
      */
     suspend fun saveSessionToken(
-        token: String,
-        expiresAt: Long,
+            token: String,
+            expiresAt: Long,
     ): Result<Unit>
 
     /**
@@ -53,8 +50,8 @@ interface ITokenRepository {
      * @return Result indicating success or containing error details
      */
     suspend fun savePrivateKey(
-        key: PrivateKey,
-        keyId: String,
+            key: PrivateKey,
+            keyId: String,
     ): Result<Unit>
 
     /**
@@ -114,378 +111,233 @@ interface ITokenRepository {
 }
 
 /**
- * Implementation of ITokenRepository using encrypted DataStore preferences.
- * - Master key is generated and stored in Android Keystore
- * - All sensitive data is encrypted using AES-256-GCM
- * - Private keys are stored as PKCS#8 DER-encoded bytes
- * - Thread-safe via coroutine-based operations
+ * [ITokenRepository] implementation backed by [androidx.security.crypto.EncryptedSharedPreferences]
+ * .
  *
- * @param context Android application context
- * @param cryptoEngine CryptoEngine instance for AES-256-GCM operations
+ * Values are transparently encrypted with an AES-256-GCM data key that is itself wrapped by an
+ * AndroidKeyStore-resident master key. The master key is created (and persisted) lazily on first
+ * access, so state survives process and app restarts. If the master key is invalidated by the
+ * platform (e.g. after biometric enrollment change) reads will surface exceptions; callers should
+ * treat that as "sign-in required" and clear dependent state.
+ *
+ * ### Heap exposure Values are returned as [String]/[ByteArray] and therefore live in the JVM heap
+ * for the lifetime of the returned reference. Callers that need short-lived credential material
+ * should overwrite their references promptly. A `CharArray`/`ByteArray`-only API would require
+ * dropping `EncryptedSharedPreferences` in favour of a custom storage layer, which we consider not
+ * worth the additional attack surface today.
+ *
+ * @param context Android application context.
  */
 class EncryptedTokenRepository(
-    private val context: Context,
-    private val cryptoEngine: CryptoEngine,
+        private val context: Context,
 ) : ITokenRepository {
     companion object {
-        private const val DATASTORE_NAME = "encrypted_tokens"
+        private const val PREFS_NAME = "encrypted_tokens"
+
+        // Field keys
         private const val KEY_SESSION_TOKEN = "session_token"
         private const val KEY_SESSION_EXPIRES = "session_expires"
         private const val KEY_APPLE_ID = "apple_id"
         private const val KEY_HARDWARE_INFO = "hardware_info"
-        private const val KEY_PRIVATE_KEYS = "private_keys"
-        private const val PRIVATE_KEYS_SEPARATOR = "|"
+        private const val KEY_PRIVATE_KEY_IDS = "private_key_ids"
+        private const val KEY_PRIVATE_KEY_PREFIX = "private_key."
+        private const val KEY_PRIVATE_KEY_ALG_PREFIX = "private_key_alg."
 
-        // Encryption metadata keys (IV is stored alongside encrypted data)
-        private const val KEY_SESSION_TOKEN_IV = "session_token_iv"
-        private const val KEY_SESSION_TOKEN_TAG = "session_token_tag"
-        private const val KEY_APPLE_ID_IV = "apple_id_iv"
-        private const val KEY_APPLE_ID_TAG = "apple_id_tag"
-        private const val KEY_HARDWARE_INFO_IV = "hardware_info_iv"
-        private const val KEY_HARDWARE_INFO_TAG = "hardware_info_tag"
-        private const val KEY_PRIVATE_KEY_IV_PREFIX = "key_iv_"
-        private const val KEY_PRIVATE_KEY_TAG_PREFIX = "key_tag_"
-        private const val KEY_MASTER_KEY = "master_key_encrypted"
-        private const val KEY_MASTER_KEY_WRAPPED = "master_key_wrapped"
-    }
+        /** Restricted keyId charset: URL-safe, bounded length — prevents pref-key collisions. */
+        private val KEY_ID_PATTERN = Regex("[A-Za-z0-9_-]{1,64}")
 
-    private val dataStore = context.preferencesDataStore(DATASTORE_NAME)
-    private val masterKey: SecretKey by lazy { getOrCreateMasterKey() }
-
-    /**
-     * Gets or creates the master encryption key from DataStore. The key is generated once and
-     * persisted, surviving app restarts. Each key component (ciphertext, IV, tag) is stored
-     * separately to enable secure decryption on subsequent app loads.
-     *
-     * Note: In production, consider storing in Android Keystore for hardware-backed encryption. For
-     * now, this uses DataStore with app-level encryption (EncryptedSharedPreferences wrapper).
-     */
-    private fun getOrCreateMasterKey(): SecretKey {
-        return try {
-            // Attempt to load existing master key from DataStore
-            val encMasterKey = getStoredMasterKey()
-            if (encMasterKey != null) {
-                return encMasterKey
+        private fun requireValidKeyId(keyId: String) {
+            require(KEY_ID_PATTERN.matches(keyId)) {
+                "invalid keyId (must match ${KEY_ID_PATTERN.pattern})"
             }
-            // No stored key; generate new one and persist it
-            val newKey = cryptoEngine.generateAesKey()
-            storeMasterKey(newKey)
-            newKey
-        } catch (e: Exception) {
-            // Fallback: generate in-memory key if storage fails
-            // TODO: Log warning; consider alerting user of potential data loss on restart
-            cryptoEngine.generateAesKey()
         }
     }
 
-    /**
-     * Retrieves the persisted master key from DataStore by decrypting it with a device-derived
-     * bootstrap key. Returns null if no key has been stored yet.
-     */
-    private fun getStoredMasterKey(): SecretKey? {
-        // TODO: Implement. For now, return null to force new key generation.
-        // In production:
-        //   1. Load KEY_MASTER_KEY_WRAPPED (encrypted key bytes)
-        //   2. Load KEY_SESSION_TOKEN_IV, KEY_SESSION_TOKEN_TAG from first saved token
-        //   3. Use device identity (ANDROID_ID) as bootstrap to decrypt
-        //   4. Return SecretKey
-        return null
-    }
+    private val prefs: SharedPreferences by lazy { createPrefs() }
 
-    /**
-     * Persists the master key to DataStore by encrypting it with a device-derived bootstrap key.
-     * Stores encrypted key bytes, IV, and authentication tag separately.
-     */
-    private fun storeMasterKey(key: SecretKey) {
-        // TODO: Implement. For now, do nothing (key lives in-memory only this session).
-        // In production:
-        //   1. Derive bootstrap key from device identity (ANDROID_ID + secure random salt)
-        //   2. Encrypt master key bytes with bootstrap key using AES-GCM
-        //   3. Store encrypted bytes as KEY_MASTER_KEY_WRAPPED
-        //   4. Store IV and tag as KEY_SESSION_TOKEN_IV, KEY_SESSION_TOKEN_TAG
-        //   5. Securely erase all intermediate values
+    private fun createPrefs(): SharedPreferences {
+        val masterKey =
+                MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
+        return EncryptedSharedPreferences.create(
+                context,
+                PREFS_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+        )
     }
 
     override suspend fun saveSessionToken(
-        token: String,
-        expiresAt: Long,
+            token: String,
+            expiresAt: Long,
     ): Result<Unit> =
-        withContext(Dispatchers.IO) {
-            try {
-                val tokenBytes = token.toByteArray(Charsets.UTF_8)
-                val encResult = cryptoEngine.aesGcmEncrypt(tokenBytes, masterKey, null)
-
-                val tokenBase64 = Base64.encodeToString(encResult.ciphertext, Base64.NO_WRAP)
-                val ivBase64 = Base64.encodeToString(encResult.iv, Base64.NO_WRAP)
-                val tagBase64 = Base64.encodeToString(encResult.authTag, Base64.NO_WRAP)
-
-                dataStore.edit { preferences ->
-                    preferences[stringPreferencesKey(KEY_SESSION_TOKEN)] = tokenBase64
-                    preferences[stringPreferencesKey(KEY_SESSION_EXPIRES)] =
-                        expiresAt.toString()
-                    preferences[stringPreferencesKey(KEY_SESSION_TOKEN_IV)] = ivBase64
-                    preferences[stringPreferencesKey(KEY_SESSION_TOKEN_TAG)] = tagBase64
+            withContext(Dispatchers.IO) {
+                try {
+                    prefs.edit()
+                            .putString(KEY_SESSION_TOKEN, token)
+                            .putLong(KEY_SESSION_EXPIRES, expiresAt)
+                            .apply()
+                    Result.success(Unit)
+                } catch (e: Throwable) {
+                    Result.failure(e)
                 }
-
-                Result.success(Unit)
-            } catch (e: Exception) {
-                Result.failure(Exception("Failed to save session token: ${e.message}", e))
             }
-        }
 
     override suspend fun getSessionToken(): Result<String?> =
-        withContext(Dispatchers.IO) {
-            try {
-                val preferences = dataStore.data.first()
-                val token = preferences[stringPreferencesKey(KEY_SESSION_TOKEN)]
-                val expiresAtStr = preferences[stringPreferencesKey(KEY_SESSION_EXPIRES)]
-                val ivBase64 = preferences[stringPreferencesKey(KEY_SESSION_TOKEN_IV)]
-                val tagBase64 = preferences[stringPreferencesKey(KEY_SESSION_TOKEN_TAG)]
-
-                when {
-                    token == null ||
-                        expiresAtStr == null ||
-                        ivBase64 == null ||
-                        tagBase64 == null -> {
+            withContext(Dispatchers.IO) {
+                try {
+                    val token = prefs.getString(KEY_SESSION_TOKEN, null)
+                    if (token == null) {
                         Result.success(null)
-                    }
-                    else -> {
-                        val expiresAt = expiresAtStr.toLong()
-                        val currentTime = System.currentTimeMillis()
-
-                        if (currentTime > expiresAt) {
+                    } else {
+                        val expiresAt = prefs.getLong(KEY_SESSION_EXPIRES, 0L)
+                        if (expiresAt == 0L || System.currentTimeMillis() > expiresAt) {
                             Result.success(null)
                         } else {
-                            val ciphertext = Base64.decode(token, Base64.NO_WRAP)
-                            val iv = Base64.decode(ivBase64, Base64.NO_WRAP)
-                            val tag = Base64.decode(tagBase64, Base64.NO_WRAP)
-
-                            cryptoEngine.aesGcmDecrypt(ciphertext, masterKey, iv, tag, null)
-                                .mapCatching { decrypted ->
-                                    String(decrypted, Charsets.UTF_8)
-                                }
+                            Result.success(token)
                         }
                     }
+                } catch (e: Throwable) {
+                    // Corrupt / unauthenticated record — best-effort clear so future reads
+                    // don't loop on the same broken ciphertext (e.g. after master key
+                    // invalidation). Preserves original failure cause.
+                    runCatching {
+                        prefs.edit().remove(KEY_SESSION_TOKEN).remove(KEY_SESSION_EXPIRES).apply()
+                    }
+                    Result.failure(e)
                 }
-            } catch (e: Exception) {
-                Result.failure(Exception("Failed to retrieve session token: ${e.message}", e))
             }
-        }
 
     override suspend fun clearSessionToken(): Result<Unit> =
-        withContext(Dispatchers.IO) {
-            try {
-                dataStore.edit { preferences ->
-                    preferences.remove(stringPreferencesKey(KEY_SESSION_TOKEN))
-                    preferences.remove(stringPreferencesKey(KEY_SESSION_EXPIRES))
-                    preferences.remove(stringPreferencesKey(KEY_SESSION_TOKEN_IV))
-                    preferences.remove(stringPreferencesKey(KEY_SESSION_TOKEN_TAG))
+            withContext(Dispatchers.IO) {
+                try {
+                    prefs.edit().remove(KEY_SESSION_TOKEN).remove(KEY_SESSION_EXPIRES).apply()
+                    Result.success(Unit)
+                } catch (e: Throwable) {
+                    Result.failure(e)
                 }
-                Result.success(Unit)
-            } catch (e: Exception) {
-                Result.failure(Exception("Failed to clear session token: ${e.message}", e))
             }
-        }
 
     override suspend fun savePrivateKey(
-        key: PrivateKey,
-        keyId: String,
+            key: PrivateKey,
+            keyId: String,
     ): Result<Unit> =
-        withContext(Dispatchers.IO) {
-            try {
-                val keyBytes = key.encoded // PKCS#8 DER format
-                val encResult = cryptoEngine.aesGcmEncrypt(keyBytes, masterKey, null)
-
-                val keyBase64 = Base64.encodeToString(encResult.ciphertext, Base64.NO_WRAP)
-                val ivBase64 = Base64.encodeToString(encResult.iv, Base64.NO_WRAP)
-                val tagBase64 = Base64.encodeToString(encResult.authTag, Base64.NO_WRAP)
-
-                dataStore.edit { preferences ->
-                    // Store the key with its keyId in a list
-                    val currentKeys =
-                        preferences[stringPreferencesKey(KEY_PRIVATE_KEYS)]?.split(
-                            PRIVATE_KEYS_SEPARATOR,
-                        )
-                            ?: emptyList()
-                    val updatedKeys =
-                        (currentKeys + keyId).filter { it.isNotBlank() }.distinct()
-
-                    preferences[stringPreferencesKey(KEY_PRIVATE_KEYS)] =
-                        updatedKeys.joinToString(PRIVATE_KEYS_SEPARATOR)
-                    preferences[stringPreferencesKey("key_data_$keyId")] = keyBase64
-                    preferences[stringPreferencesKey(KEY_PRIVATE_KEY_IV_PREFIX + keyId)] =
-                        ivBase64
-                    preferences[stringPreferencesKey(KEY_PRIVATE_KEY_TAG_PREFIX + keyId)] =
-                        tagBase64
+            withContext(Dispatchers.IO) {
+                try {
+                    requireValidKeyId(keyId)
+                    val encoded = key.encoded ?: error("PrivateKey has no PKCS#8 encoding")
+                    val encodedB64 = Base64.encodeToString(encoded, Base64.NO_WRAP)
+                    val ids =
+                            (prefs.getStringSet(KEY_PRIVATE_KEY_IDS, emptySet())
+                                    ?: emptySet()) + keyId
+                    prefs.edit()
+                            .putString(KEY_PRIVATE_KEY_PREFIX + keyId, encodedB64)
+                            .putString(KEY_PRIVATE_KEY_ALG_PREFIX + keyId, key.algorithm)
+                            .putStringSet(KEY_PRIVATE_KEY_IDS, ids)
+                            .apply()
+                    Result.success(Unit)
+                } catch (e: Throwable) {
+                    Result.failure(e)
                 }
-
-                Result.success(Unit)
-            } catch (e: Exception) {
-                Result.failure(Exception("Failed to save private key: ${e.message}", e))
             }
-        }
 
     override suspend fun getPrivateKey(keyId: String): Result<PrivateKey?> =
-        withContext(Dispatchers.IO) {
-            try {
-                val preferences = dataStore.data.first()
-                val keyBase64 = preferences[stringPreferencesKey("key_data_$keyId")]
-                val ivBase64 =
-                    preferences[stringPreferencesKey(KEY_PRIVATE_KEY_IV_PREFIX + keyId)]
-                val tagBase64 =
-                    preferences[stringPreferencesKey(KEY_PRIVATE_KEY_TAG_PREFIX + keyId)]
-
-                when {
-                    keyBase64 == null || ivBase64 == null || tagBase64 == null -> {
-                        Result.success(null)
+            withContext(Dispatchers.IO) {
+                try {
+                    requireValidKeyId(keyId)
+                    val encoded =
+                            prefs.getString(KEY_PRIVATE_KEY_PREFIX + keyId, null)
+                                    ?: return@withContext Result.success(null)
+                    val algorithm =
+                            prefs.getString(KEY_PRIVATE_KEY_ALG_PREFIX + keyId, null) ?: "RSA"
+                    val bytes = Base64.decode(encoded, Base64.NO_WRAP)
+                    val privateKey =
+                            KeyFactory.getInstance(algorithm)
+                                    .generatePrivate(PKCS8EncodedKeySpec(bytes))
+                    Result.success(privateKey)
+                } catch (e: Throwable) {
+                    // Clear the individual record on decryption / parse failure to avoid a
+                    // permanent read loop when the master key is invalidated.
+                    runCatching {
+                        prefs.edit()
+                                .remove(KEY_PRIVATE_KEY_PREFIX + keyId)
+                                .remove(KEY_PRIVATE_KEY_ALG_PREFIX + keyId)
+                                .apply()
                     }
-                    else -> {
-                        val ciphertext = Base64.decode(keyBase64, Base64.NO_WRAP)
-                        val iv = Base64.decode(ivBase64, Base64.NO_WRAP)
-                        val tag = Base64.decode(tagBase64, Base64.NO_WRAP)
-
-                        cryptoEngine.aesGcmDecrypt(ciphertext, masterKey, iv, tag, null)
-                            .mapCatching { decrypted ->
-                                val keySpec = PKCS8EncodedKeySpec(decrypted)
-                                val keyFactory = KeyFactory.getInstance("RSA")
-                                keyFactory.generatePrivate(keySpec)
-                            }
-                    }
+                    Result.failure(e)
                 }
-            } catch (e: Exception) {
-                Result.failure(Exception("Failed to retrieve private key: ${e.message}", e))
             }
-        }
 
     override suspend fun listPrivateKeys(): Result<List<String>> =
-        withContext(Dispatchers.IO) {
-            try {
-                val preferences = dataStore.data.first()
-                val keysStr = preferences[stringPreferencesKey(KEY_PRIVATE_KEYS)] ?: ""
-                val keyIds = keysStr.split(PRIVATE_KEYS_SEPARATOR).filter { it.isNotBlank() }
-                Result.success(keyIds)
-            } catch (e: Exception) {
-                Result.failure(Exception("Failed to list private keys: ${e.message}", e))
+            withContext(Dispatchers.IO) {
+                try {
+                    val ids = prefs.getStringSet(KEY_PRIVATE_KEY_IDS, emptySet()) ?: emptySet()
+                    // Defensive: drop anything that no longer matches the accepted charset.
+                    Result.success(ids.filter { KEY_ID_PATTERN.matches(it) })
+                } catch (e: Throwable) {
+                    Result.failure(e)
+                }
             }
-        }
 
     override suspend fun deletePrivateKey(keyId: String): Result<Unit> =
-        withContext(Dispatchers.IO) {
-            try {
-                dataStore.edit { preferences ->
-                    // Remove key from list
-                    val currentKeys =
-                        preferences[stringPreferencesKey(KEY_PRIVATE_KEYS)]?.split(
-                            PRIVATE_KEYS_SEPARATOR,
-                        )
-                            ?: emptyList()
-                    val updatedKeys = currentKeys.filter { it != keyId }
-
-                    preferences[stringPreferencesKey(KEY_PRIVATE_KEYS)] =
-                        updatedKeys.joinToString(PRIVATE_KEYS_SEPARATOR)
-
-                    // Remove key data, IV, and auth tag
-                    preferences.remove(stringPreferencesKey("key_data_$keyId"))
-                    preferences.remove(stringPreferencesKey(KEY_PRIVATE_KEY_IV_PREFIX + keyId))
-                    preferences.remove(stringPreferencesKey(KEY_PRIVATE_KEY_TAG_PREFIX + keyId))
+            withContext(Dispatchers.IO) {
+                try {
+                    requireValidKeyId(keyId)
+                    val ids =
+                            (prefs.getStringSet(KEY_PRIVATE_KEY_IDS, emptySet())
+                                    ?: emptySet()) - keyId
+                    prefs.edit()
+                            .remove(KEY_PRIVATE_KEY_PREFIX + keyId)
+                            .remove(KEY_PRIVATE_KEY_ALG_PREFIX + keyId)
+                            .putStringSet(KEY_PRIVATE_KEY_IDS, ids)
+                            .apply()
+                    Result.success(Unit)
+                } catch (e: Throwable) {
+                    Result.failure(e)
                 }
-                Result.success(Unit)
-            } catch (e: Exception) {
-                Result.failure(Exception("Failed to delete private key: ${e.message}", e))
             }
-        }
 
     override suspend fun saveAppleId(appleId: String): Result<Unit> =
-        withContext(Dispatchers.IO) {
-            try {
-                val appleIdBytes = appleId.toByteArray(Charsets.UTF_8)
-                val encResult = cryptoEngine.aesGcmEncrypt(appleIdBytes, masterKey, null)
-
-                val appleIdBase64 = Base64.encodeToString(encResult.ciphertext, Base64.NO_WRAP)
-                val ivBase64 = Base64.encodeToString(encResult.iv, Base64.NO_WRAP)
-                val tagBase64 = Base64.encodeToString(encResult.authTag, Base64.NO_WRAP)
-
-                dataStore.edit { preferences ->
-                    preferences[stringPreferencesKey(KEY_APPLE_ID)] = appleIdBase64
-                    preferences[stringPreferencesKey(KEY_APPLE_ID_IV)] = ivBase64
-                    preferences[stringPreferencesKey(KEY_APPLE_ID_TAG)] = tagBase64
+            withContext(Dispatchers.IO) {
+                try {
+                    prefs.edit().putString(KEY_APPLE_ID, appleId).apply()
+                    Result.success(Unit)
+                } catch (e: Throwable) {
+                    Result.failure(e)
                 }
-
-                Result.success(Unit)
-            } catch (e: Exception) {
-                Result.failure(Exception("Failed to save Apple ID: ${e.message}", e))
             }
-        }
 
     override suspend fun getAppleId(): Result<String?> =
-        withContext(Dispatchers.IO) {
-            try {
-                val preferences = dataStore.data.first()
-                val appleIdBase64 = preferences[stringPreferencesKey(KEY_APPLE_ID)]
-                val ivBase64 = preferences[stringPreferencesKey(KEY_APPLE_ID_IV)]
-                val tagBase64 = preferences[stringPreferencesKey(KEY_APPLE_ID_TAG)]
-
-                when {
-                    appleIdBase64 == null || ivBase64 == null || tagBase64 == null -> {
-                        Result.success(null)
-                    }
-                    else -> {
-                        val ciphertext = Base64.decode(appleIdBase64, Base64.NO_WRAP)
-                        val iv = Base64.decode(ivBase64, Base64.NO_WRAP)
-                        val tag = Base64.decode(tagBase64, Base64.NO_WRAP)
-
-                        cryptoEngine.aesGcmDecrypt(ciphertext, masterKey, iv, tag, null)
-                            .mapCatching { decrypted -> String(decrypted, Charsets.UTF_8) }
-                    }
+            withContext(Dispatchers.IO) {
+                try {
+                    Result.success(prefs.getString(KEY_APPLE_ID, null))
+                } catch (e: Throwable) {
+                    runCatching { prefs.edit().remove(KEY_APPLE_ID).apply() }
+                    Result.failure(e)
                 }
-            } catch (e: Exception) {
-                Result.failure(Exception("Failed to retrieve Apple ID: ${e.message}", e))
             }
-        }
 
     override suspend fun saveHardwareInfo(hwInfo: ByteArray): Result<Unit> =
-        withContext(Dispatchers.IO) {
-            try {
-                val encResult = cryptoEngine.aesGcmEncrypt(hwInfo, masterKey, null)
-
-                val hwBase64 = Base64.encodeToString(encResult.ciphertext, Base64.NO_WRAP)
-                val ivBase64 = Base64.encodeToString(encResult.iv, Base64.NO_WRAP)
-                val tagBase64 = Base64.encodeToString(encResult.authTag, Base64.NO_WRAP)
-
-                dataStore.edit { preferences ->
-                    preferences[stringPreferencesKey(KEY_HARDWARE_INFO)] = hwBase64
-                    preferences[stringPreferencesKey(KEY_HARDWARE_INFO_IV)] = ivBase64
-                    preferences[stringPreferencesKey(KEY_HARDWARE_INFO_TAG)] = tagBase64
+            withContext(Dispatchers.IO) {
+                try {
+                    val encoded = Base64.encodeToString(hwInfo, Base64.NO_WRAP)
+                    prefs.edit().putString(KEY_HARDWARE_INFO, encoded).apply()
+                    Result.success(Unit)
+                } catch (e: Throwable) {
+                    Result.failure(e)
                 }
-
-                Result.success(Unit)
-            } catch (e: Exception) {
-                Result.failure(Exception("Failed to save hardware info: ${e.message}", e))
             }
-        }
 
     override suspend fun getHardwareInfo(): Result<ByteArray?> =
-        withContext(Dispatchers.IO) {
-            try {
-                val preferences = dataStore.data.first()
-                val hwBase64 = preferences[stringPreferencesKey(KEY_HARDWARE_INFO)]
-                val ivBase64 = preferences[stringPreferencesKey(KEY_HARDWARE_INFO_IV)]
-                val tagBase64 = preferences[stringPreferencesKey(KEY_HARDWARE_INFO_TAG)]
-
-                when {
-                    hwBase64 == null || ivBase64 == null || tagBase64 == null -> {
-                        Result.success(null)
-                    }
-                    else -> {
-                        val ciphertext = Base64.decode(hwBase64, Base64.NO_WRAP)
-                        val iv = Base64.decode(ivBase64, Base64.NO_WRAP)
-                        val tag = Base64.decode(tagBase64, Base64.NO_WRAP)
-
-                        cryptoEngine.aesGcmDecrypt(ciphertext, masterKey, iv, tag, null)
-                    }
+            withContext(Dispatchers.IO) {
+                try {
+                    val encoded =
+                            prefs.getString(KEY_HARDWARE_INFO, null)
+                                    ?: return@withContext Result.success(null)
+                    Result.success(Base64.decode(encoded, Base64.NO_WRAP))
+                } catch (e: Throwable) {
+                    runCatching { prefs.edit().remove(KEY_HARDWARE_INFO).apply() }
+                    Result.failure(e)
                 }
-            } catch (e: Exception) {
-                Result.failure(Exception("Failed to retrieve hardware info: ${e.message}", e))
             }
-        }
 }
