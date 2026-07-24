@@ -23,6 +23,13 @@ sealed class AuthState {
     data class AwaitingCredentials(val lastError: String? = null) : AuthState()
 
     /**
+     * Credentials have been submitted; a network call is in flight. UI should show progress and
+     * disable the submit affordance. Emitted transiently before AwaitingTwoFactorCode,
+     * ProvisioningHardware, or Failed.
+     */
+    data object Authenticating : AuthState()
+
+    /**
      * Server requested 2FA code. User must submit code.
      * @param challenge The 2FA challenge string from the server.
      */

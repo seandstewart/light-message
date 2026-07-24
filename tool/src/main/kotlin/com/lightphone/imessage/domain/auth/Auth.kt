@@ -6,6 +6,14 @@ import kotlinx.coroutines.flow.StateFlow
 data class AppleId(val email: String)
 
 /**
+ * Thrown by relay/native clients when the server rejects the current session token or credentials
+ * with an authorization failure (e.g., HTTP 401/403). Used by the auth state machine to decide
+ * whether to demote to AwaitingCredentials on refresh failure vs. retain the current session.
+ */
+class UnauthorizedException(message: String? = null, cause: Throwable? = null) :
+        RuntimeException(message, cause)
+
+/**
  * Public interface for authentication management.
  *
  * Provides methods to authenticate with Apple ID, handle 2FA, refresh sessions, and logout. All
@@ -23,12 +31,14 @@ interface IAuthManager {
      * credentials to relay → may transition to AwaitingTwoFactorCode or ProvisioningHardware.
      *
      * @param appleId Apple ID (email) to authenticate
-     * @param password Apple ID password
+     * @param password Apple ID password. NOTE: Password is captured as an immutable `String` until
+     * the credential-scrubbing story lands (tracked in follow-up); callers should minimize
+     * retention and avoid logging.
      * @return Result.success(Unit) if credentials accepted, Result.failure otherwise
      */
     suspend fun startAuthentication(
-        appleId: AppleId,
-        password: String,
+            appleId: AppleId,
+            password: String,
     ): Result<Unit>
 
     /**
