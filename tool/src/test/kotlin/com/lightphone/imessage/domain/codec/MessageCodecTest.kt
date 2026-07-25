@@ -36,15 +36,15 @@ class MessageCodecTest {
         val senderCert = createTestCertificate(senderPublicKey, senderPrivateKey)
 
         val payload =
-                MessagePayload(
-                        messageId = "msg-001",
-                        sender = "alice@example.com",
-                        recipients = listOf("bob@example.com"),
-                        body = "Hello, Bob!",
-                )
+            MessagePayload(
+                messageId = "msg-001",
+                sender = "alice@example.com",
+                recipients = listOf("bob@example.com"),
+                body = "Hello, Bob!",
+            )
 
         val encodeResult =
-                messageCodec.encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
+            messageCodec.encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
         assertTrue("Encoding must succeed", encodeResult.isSuccess)
 
         val envelope = encodeResult.getOrThrow()
@@ -68,24 +68,24 @@ class MessageCodecTest {
         val senderCert = createTestCertificate(senderPublicKey, senderPrivateKey)
 
         val payload =
-                MessagePayload(
-                        messageId = "msg-002",
-                        sender = "alice@example.com",
-                        recipients = listOf("bob@example.com", "carol@example.com"),
-                        body = "Message with metadata",
-                        metadata = mapOf("priority" to "high", "thread-id" to "thread-123"),
-                )
+            MessagePayload(
+                messageId = "msg-002",
+                sender = "alice@example.com",
+                recipients = listOf("bob@example.com", "carol@example.com"),
+                body = "Message with metadata",
+                metadata = mapOf("priority" to "high", "thread-id" to "thread-123"),
+            )
 
         val encodeResult =
-                messageCodec.encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
+            messageCodec.encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
         assertTrue("Encoding must succeed", encodeResult.isSuccess)
 
         val decodeResult =
-                messageCodec.decodeEnvelope(
-                        encodeResult.getOrThrow(),
-                        senderCert,
-                        recipientPrivateKey,
-                )
+            messageCodec.decodeEnvelope(
+                encodeResult.getOrThrow(),
+                senderCert,
+                recipientPrivateKey,
+            )
         assertTrue("Decoding must succeed", decodeResult.isSuccess)
 
         val decodedPayload = decodeResult.getOrThrow()
@@ -100,55 +100,55 @@ class MessageCodecTest {
 
         val attachmentKey = ByteArray(32) { it.toByte() }
         val attachment =
-                MessagePayload.AttachmentInfo(
-                        id = "att-001",
-                        mimeType = "image/png",
-                        url = "https://example.com/image.png",
-                        size = 10240,
-                        encryptionKey = attachmentKey,
-                )
+            MessagePayload.AttachmentInfo(
+                id = "att-001",
+                mimeType = "image/png",
+                url = "https://example.com/image.png",
+                size = 10240,
+                encryptionKey = attachmentKey,
+            )
 
         val payload =
-                MessagePayload(
-                        messageId = "msg-003",
-                        sender = "alice@example.com",
-                        recipients = listOf("bob@example.com"),
-                        body = "Message with attachment",
-                        attachments = listOf(attachment),
-                )
+            MessagePayload(
+                messageId = "msg-003",
+                sender = "alice@example.com",
+                recipients = listOf("bob@example.com"),
+                body = "Message with attachment",
+                attachments = listOf(attachment),
+            )
 
         val encodeResult =
-                messageCodec.encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
+            messageCodec.encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
         assertTrue("Encoding must succeed", encodeResult.isSuccess)
 
         val decodeResult =
-                messageCodec.decodeEnvelope(
-                        encodeResult.getOrThrow(),
-                        senderCert,
-                        recipientPrivateKey,
-                )
+            messageCodec.decodeEnvelope(
+                encodeResult.getOrThrow(),
+                senderCert,
+                recipientPrivateKey,
+            )
         assertTrue("Decoding must succeed", decodeResult.isSuccess)
 
         val decodedPayload = decodeResult.getOrThrow()
         assertEquals(
-                "Attachments must match",
-                payload.attachments.size,
-                decodedPayload.attachments.size,
+            "Attachments must match",
+            payload.attachments.size,
+            decodedPayload.attachments.size,
         )
 
         val decodedAttachment = decodedPayload.attachments[0]
         assertEquals("Attachment ID must match", attachment.id, decodedAttachment.id)
         assertEquals(
-                "Attachment MIME type must match",
-                attachment.mimeType,
-                decodedAttachment.mimeType,
+            "Attachment MIME type must match",
+            attachment.mimeType,
+            decodedAttachment.mimeType,
         )
         assertEquals("Attachment URL must match", attachment.url, decodedAttachment.url)
         assertEquals("Attachment size must match", attachment.size, decodedAttachment.size)
         assertArrayEquals(
-                "Attachment encryption key must match",
-                attachment.encryptionKey,
-                decodedAttachment.encryptionKey,
+            "Attachment encryption key must match",
+            attachment.encryptionKey,
+            decodedAttachment.encryptionKey,
         )
     }
 
@@ -159,39 +159,39 @@ class MessageCodecTest {
         val senderCert = createTestCertificate(senderPublicKey, senderPrivateKey)
 
         val payload =
-                MessagePayload(
-                        messageId = "msg-004",
-                        sender = "alice@example.com",
-                        recipients =
-                                listOf("bob@example.com", "carol@example.com", "dave@example.com"),
-                        body = "Group message",
-                )
+            MessagePayload(
+                messageId = "msg-004",
+                sender = "alice@example.com",
+                recipients =
+                    listOf("bob@example.com", "carol@example.com", "dave@example.com"),
+                body = "Group message",
+            )
 
         val encodeResult =
-                messageCodec.encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
+            messageCodec.encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
         assertTrue("Encoding must succeed", encodeResult.isSuccess)
 
         val decodeResult =
-                messageCodec.decodeEnvelope(
-                        encodeResult.getOrThrow(),
-                        senderCert,
-                        recipientPrivateKey,
-                )
+            messageCodec.decodeEnvelope(
+                encodeResult.getOrThrow(),
+                senderCert,
+                recipientPrivateKey,
+            )
         assertTrue("Decoding must succeed", decodeResult.isSuccess)
 
         val decodedPayload = decodeResult.getOrThrow()
         assertEquals("Recipients count must match", 3, decodedPayload.recipients.size)
         assertTrue(
-                "Recipients must contain all addresses",
-                decodedPayload.recipients.contains("bob@example.com"),
+            "Recipients must contain all addresses",
+            decodedPayload.recipients.contains("bob@example.com"),
         )
         assertTrue(
-                "Recipients must contain all addresses",
-                decodedPayload.recipients.contains("carol@example.com"),
+            "Recipients must contain all addresses",
+            decodedPayload.recipients.contains("carol@example.com"),
         )
         assertTrue(
-                "Recipients must contain all addresses",
-                decodedPayload.recipients.contains("dave@example.com"),
+            "Recipients must contain all addresses",
+            decodedPayload.recipients.contains("dave@example.com"),
         )
     }
 
@@ -204,15 +204,15 @@ class MessageCodecTest {
         val senderCert = createTestCertificate(senderPublicKey, senderPrivateKey)
 
         val payload =
-                MessagePayload(
-                        messageId = "msg-005",
-                        sender = "alice@example.com",
-                        recipients = listOf("bob@example.com"),
-                        body = "Signed message",
-                )
+            MessagePayload(
+                messageId = "msg-005",
+                sender = "alice@example.com",
+                recipients = listOf("bob@example.com"),
+                body = "Signed message",
+            )
 
         val encodeResult =
-                messageCodec.encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
+            messageCodec.encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
         val envelope = encodeResult.getOrThrow()
 
         val decodeResult = messageCodec.decodeEnvelope(envelope, senderCert, recipientPrivateKey)
@@ -227,20 +227,20 @@ class MessageCodecTest {
 
         val senderCert = createTestCertificate(senderPublicKey, senderPrivateKey)
         val wrongCert =
-                createTestCertificate(wrongPublicKey, cryptoEngine.generateEcdsaKeyPair().second)
+            createTestCertificate(wrongPublicKey, cryptoEngine.generateEcdsaKeyPair().second)
 
         val payload =
-                MessagePayload(
-                        messageId = "msg-006",
-                        sender = "alice@example.com",
-                        recipients = listOf("bob@example.com"),
-                        body = "Message",
-                )
+            MessagePayload(
+                messageId = "msg-006",
+                sender = "alice@example.com",
+                recipients = listOf("bob@example.com"),
+                body = "Message",
+            )
 
         val envelope =
-                messageCodec
-                        .encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
-                        .getOrThrow()
+            messageCodec
+                .encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
+                .getOrThrow()
         val decodeResult = messageCodec.decodeEnvelope(envelope, wrongCert, recipientPrivateKey)
 
         assertTrue("Decoding with wrong sender cert must fail", decodeResult.isFailure)
@@ -255,15 +255,15 @@ class MessageCodecTest {
         val senderCert = createTestCertificate(senderPublicKey, senderPrivateKey)
 
         val payload =
-                MessagePayload(
-                        messageId = "msg-007",
-                        sender = "alice@example.com",
-                        recipients = listOf("bob@example.com"),
-                        body = "Tamper test",
-                )
+            MessagePayload(
+                messageId = "msg-007",
+                sender = "alice@example.com",
+                recipients = listOf("bob@example.com"),
+                body = "Tamper test",
+            )
 
         val encodeResult =
-                messageCodec.encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
+            messageCodec.encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
         val envelope = encodeResult.getOrThrow()
 
         // Tamper with the envelope
@@ -273,7 +273,7 @@ class MessageCodecTest {
         }
 
         val decodeResult =
-                messageCodec.decodeEnvelope(tamperedEnvelope, senderCert, recipientPrivateKey)
+            messageCodec.decodeEnvelope(tamperedEnvelope, senderCert, recipientPrivateKey)
         assertTrue("Decoding tampered envelope must fail", decodeResult.isFailure)
     }
 
@@ -286,18 +286,18 @@ class MessageCodecTest {
         val senderCert = createTestCertificate(senderPublicKey, senderPrivateKey)
 
         val payload =
-                MessagePayload(
-                        messageId = "msg-008",
-                        sender = "alice@example.com",
-                        recipients = listOf("bob@example.com"),
-                        body = "Invalid signature test",
-                )
+            MessagePayload(
+                messageId = "msg-008",
+                sender = "alice@example.com",
+                recipients = listOf("bob@example.com"),
+                body = "Invalid signature test",
+            )
 
         // Encode with one key
         val envelope =
-                messageCodec
-                        .encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
-                        .getOrThrow()
+            messageCodec
+                .encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
+                .getOrThrow()
 
         // Try to decode with different sender certificate
         val wrongCert = createTestCertificate(otherPublicKey, otherPrivateKey)
@@ -314,19 +314,19 @@ class MessageCodecTest {
 
         // Create a malformed envelope without proper signature
         val malformedEnvelope =
-                byteArrayOf(
-                        'b'.code.toByte(),
-                        'p'.code.toByte(),
-                        'l'.code.toByte(),
-                        'i'.code.toByte(),
-                        's'.code.toByte(),
-                        't'.code.toByte(),
-                        '0'.code.toByte(),
-                        '0'.code.toByte()
-                ) + ByteArray(100)
+            byteArrayOf(
+                'b'.code.toByte(),
+                'p'.code.toByte(),
+                'l'.code.toByte(),
+                'i'.code.toByte(),
+                's'.code.toByte(),
+                't'.code.toByte(),
+                '0'.code.toByte(),
+                '0'.code.toByte()
+            ) + ByteArray(100)
 
         val decodeResult =
-                messageCodec.decodeEnvelope(malformedEnvelope, senderCert, recipientPrivateKey)
+            messageCodec.decodeEnvelope(malformedEnvelope, senderCert, recipientPrivateKey)
         assertTrue("Decoding unsigned/malformed message must fail", decodeResult.isFailure)
     }
 
@@ -339,28 +339,28 @@ class MessageCodecTest {
         val senderCert = createTestCertificate(senderPublicKey, senderPrivateKey)
 
         val metadata =
-                mapOf(
-                        "priority" to "high",
-                        "thread-id" to "thread-456",
-                        "custom-field" to "custom-value",
-                        "empty" to "",
-                )
+            mapOf(
+                "priority" to "high",
+                "thread-id" to "thread-456",
+                "custom-field" to "custom-value",
+                "empty" to "",
+            )
 
         val payload =
-                MessagePayload(
-                        messageId = "msg-009",
-                        sender = "alice@example.com",
-                        recipients = listOf("bob@example.com"),
-                        body = "Metadata test",
-                        metadata = metadata,
-                )
+            MessagePayload(
+                messageId = "msg-009",
+                sender = "alice@example.com",
+                recipients = listOf("bob@example.com"),
+                body = "Metadata test",
+                metadata = metadata,
+            )
 
         val envelope =
-                messageCodec
-                        .encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
-                        .getOrThrow()
+            messageCodec
+                .encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
+                .getOrThrow()
         val decodedPayload =
-                messageCodec.decodeEnvelope(envelope, senderCert, recipientPrivateKey).getOrThrow()
+            messageCodec.decodeEnvelope(envelope, senderCert, recipientPrivateKey).getOrThrow()
 
         assertEquals("All metadata must be preserved", metadata, decodedPayload.metadata)
     }
@@ -372,65 +372,65 @@ class MessageCodecTest {
         val senderCert = createTestCertificate(senderPublicKey, senderPrivateKey)
 
         val attachments =
-                listOf(
-                        MessagePayload.AttachmentInfo(
-                                id = "att-001",
-                                mimeType = "image/jpeg",
-                                url = "https://example.com/photo.jpg",
-                                size = 204800,
-                                encryptionKey = ByteArray(32),
-                        ),
-                        MessagePayload.AttachmentInfo(
-                                id = "att-002",
-                                mimeType = "video/mp4",
-                                url = "https://example.com/video.mp4",
-                                size = 5242880,
-                                encryptionKey = ByteArray(32) { it.toByte() },
-                        ),
-                )
+            listOf(
+                MessagePayload.AttachmentInfo(
+                    id = "att-001",
+                    mimeType = "image/jpeg",
+                    url = "https://example.com/photo.jpg",
+                    size = 204800,
+                    encryptionKey = ByteArray(32),
+                ),
+                MessagePayload.AttachmentInfo(
+                    id = "att-002",
+                    mimeType = "video/mp4",
+                    url = "https://example.com/video.mp4",
+                    size = 5242880,
+                    encryptionKey = ByteArray(32) { it.toByte() },
+                ),
+            )
 
         val payload =
-                MessagePayload(
-                        messageId = "msg-010",
-                        sender = "alice@example.com",
-                        recipients = listOf("bob@example.com"),
-                        body = "Multiple attachments",
-                        attachments = attachments,
-                )
+            MessagePayload(
+                messageId = "msg-010",
+                sender = "alice@example.com",
+                recipients = listOf("bob@example.com"),
+                body = "Multiple attachments",
+                attachments = attachments,
+            )
 
         val envelope =
-                messageCodec
-                        .encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
-                        .getOrThrow()
+            messageCodec
+                .encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
+                .getOrThrow()
         val decodedPayload =
-                messageCodec.decodeEnvelope(envelope, senderCert, recipientPrivateKey).getOrThrow()
+            messageCodec.decodeEnvelope(envelope, senderCert, recipientPrivateKey).getOrThrow()
 
         assertEquals(
-                "All attachments must be preserved",
-                attachments.size,
-                decodedPayload.attachments.size,
+            "All attachments must be preserved",
+            attachments.size,
+            decodedPayload.attachments.size,
         )
 
         for (i in attachments.indices) {
             assertEquals(
-                    "Attachment ID must match",
-                    attachments[i].id,
-                    decodedPayload.attachments[i].id,
+                "Attachment ID must match",
+                attachments[i].id,
+                decodedPayload.attachments[i].id,
             )
             assertEquals(
-                    "Attachment MIME type must match",
-                    attachments[i].mimeType,
-                    decodedPayload.attachments[i].mimeType,
+                "Attachment MIME type must match",
+                attachments[i].mimeType,
+                decodedPayload.attachments[i].mimeType,
             )
             assertEquals(
-                    "Attachment URL must match",
-                    attachments[i].url,
-                    decodedPayload.attachments[i].url,
+                "Attachment URL must match",
+                attachments[i].url,
+                decodedPayload.attachments[i].url,
             )
             assertEquals(
-                    "Attachment size must match",
-                    attachments[i].size,
-                    decodedPayload.attachments[i].size,
+                "Attachment size must match",
+                attachments[i].size,
+                decodedPayload.attachments[i].size,
             )
         }
     }
@@ -444,19 +444,19 @@ class MessageCodecTest {
         val senderCert = createTestCertificate(senderPublicKey, senderPrivateKey)
 
         val payload =
-                MessagePayload(
-                        messageId = "msg-011",
-                        sender = "alice@example.com",
-                        recipients = listOf("bob@example.com"),
-                        body = "",
-                )
+            MessagePayload(
+                messageId = "msg-011",
+                sender = "alice@example.com",
+                recipients = listOf("bob@example.com"),
+                body = "",
+            )
 
         val envelope =
-                messageCodec
-                        .encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
-                        .getOrThrow()
+            messageCodec
+                .encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
+                .getOrThrow()
         val decodedPayload =
-                messageCodec.decodeEnvelope(envelope, senderCert, recipientPrivateKey).getOrThrow()
+            messageCodec.decodeEnvelope(envelope, senderCert, recipientPrivateKey).getOrThrow()
 
         assertEquals("Empty body must be preserved", "", decodedPayload.body)
     }
@@ -470,19 +470,19 @@ class MessageCodecTest {
         val largeBody = "A".repeat(100000) // 100 KB
 
         val payload =
-                MessagePayload(
-                        messageId = "msg-012",
-                        sender = "alice@example.com",
-                        recipients = listOf("bob@example.com"),
-                        body = largeBody,
-                )
+            MessagePayload(
+                messageId = "msg-012",
+                sender = "alice@example.com",
+                recipients = listOf("bob@example.com"),
+                body = largeBody,
+            )
 
         val envelope =
-                messageCodec
-                        .encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
-                        .getOrThrow()
+            messageCodec
+                .encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
+                .getOrThrow()
         val decodedPayload =
-                messageCodec.decodeEnvelope(envelope, senderCert, recipientPrivateKey).getOrThrow()
+            messageCodec.decodeEnvelope(envelope, senderCert, recipientPrivateKey).getOrThrow()
 
         assertEquals("Large body must be preserved", largeBody, decodedPayload.body)
     }
@@ -496,19 +496,19 @@ class MessageCodecTest {
         val unicodeBody = "Hello 世界 🌍 مرحبا שלום"
 
         val payload =
-                MessagePayload(
-                        messageId = "msg-013",
-                        sender = "alice@example.com",
-                        recipients = listOf("bob@example.com"),
-                        body = unicodeBody,
-                )
+            MessagePayload(
+                messageId = "msg-013",
+                sender = "alice@example.com",
+                recipients = listOf("bob@example.com"),
+                body = unicodeBody,
+            )
 
         val envelope =
-                messageCodec
-                        .encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
-                        .getOrThrow()
+            messageCodec
+                .encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
+                .getOrThrow()
         val decodedPayload =
-                messageCodec.decodeEnvelope(envelope, senderCert, recipientPrivateKey).getOrThrow()
+            messageCodec.decodeEnvelope(envelope, senderCert, recipientPrivateKey).getOrThrow()
 
         assertEquals("Unicode body must be preserved", unicodeBody, decodedPayload.body)
     }
@@ -520,19 +520,19 @@ class MessageCodecTest {
         val senderCert = createTestCertificate(senderPublicKey, senderPrivateKey)
 
         val payload =
-                MessagePayload(
-                        messageId = "msg-014",
-                        sender = "alice@example.com",
-                        recipients = emptyList(),
-                        body = "No recipients",
-                )
+            MessagePayload(
+                messageId = "msg-014",
+                sender = "alice@example.com",
+                recipients = emptyList(),
+                body = "No recipients",
+            )
 
         val envelope =
-                messageCodec
-                        .encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
-                        .getOrThrow()
+            messageCodec
+                .encodeEnvelope(payload, recipientPublicKey, senderPrivateKey)
+                .getOrThrow()
         val decodedPayload =
-                messageCodec.decodeEnvelope(envelope, senderCert, recipientPrivateKey).getOrThrow()
+            messageCodec.decodeEnvelope(envelope, senderCert, recipientPrivateKey).getOrThrow()
 
         assertEquals("Empty recipients list must be preserved", 0, decodedPayload.recipients.size)
     }
@@ -550,7 +550,7 @@ class MessageCodecTest {
 
     @Test
     fun testDecodePlistSimple() {
-        val value = PlistDict(mapOf("test" to PlistString("value")))
+        val value = PlistDict(linkedMapOf("test" to PlistString("value")))
         val encoded = messageCodec.encodePlist(value).getOrThrow()
         val decodeResult = messageCodec.decodePlist(encoded)
 
@@ -561,18 +561,18 @@ class MessageCodecTest {
     @Test
     fun testEncodePlistAllTypes() {
         val value =
-                PlistDict(
-                        mapOf(
-                                "null" to PlistNull,
-                                "bool" to PlistBoolean(true),
-                                "int" to PlistInteger(42L),
-                                "float" to PlistFloat(3.14),
-                                "string" to PlistString("test"),
-                                "data" to PlistData(byteArrayOf(1, 2, 3)),
-                                "array" to PlistArray(listOf(PlistInteger(1L), PlistInteger(2L))),
-                                "dict" to PlistDict(mapOf("nested" to PlistString("value"))),
-                        ),
-                )
+            PlistDict(
+                linkedMapOf(
+                    "array" to PlistArray(listOf(PlistInteger(1L), PlistInteger(2L))),
+                    "bool" to PlistBoolean(true),
+                    "data" to PlistData(byteArrayOf(1, 2, 3)),
+                    "dict" to PlistDict(linkedMapOf("nested" to PlistString("value"))),
+                    "float" to PlistFloat(3.14),
+                    "int" to PlistInteger(42L),
+                    "null" to PlistNull,
+                    "string" to PlistString("test"),
+                ),
+            )
 
         val encoded = messageCodec.encodePlist(value).getOrThrow()
         val decoded = messageCodec.decodePlist(encoded).getOrThrow()
@@ -583,8 +583,8 @@ class MessageCodecTest {
     // ========== Helper Functions ==========
 
     private fun createTestCertificate(
-            publicKey: java.security.PublicKey,
-            privateKey: java.security.PrivateKey,
+        publicKey: java.security.PublicKey,
+        privateKey: java.security.PrivateKey,
     ): X509Certificate {
         try {
             // Self-signed X.509 certificate via BouncyCastle (JDK 17 blocks sun.security.x509.*).
@@ -594,14 +594,14 @@ class MessageCodecTest {
             val notAfter = Date(notBefore.time + 365L * 24 * 60 * 60 * 1000)
 
             val certBuilder =
-                    JcaX509v3CertificateBuilder(
-                            issuer,
-                            serial,
-                            notBefore,
-                            notAfter,
-                            issuer,
-                            publicKey,
-                    )
+                JcaX509v3CertificateBuilder(
+                    issuer,
+                    serial,
+                    notBefore,
+                    notAfter,
+                    issuer,
+                    publicKey,
+                )
             val signer = JcaContentSignerBuilder("SHA256withECDSA").build(privateKey)
             val certHolder = certBuilder.build(signer)
             return JcaX509CertificateConverter().getCertificate(certHolder)

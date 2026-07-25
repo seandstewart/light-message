@@ -49,8 +49,14 @@ sealed class AuthState {
      * Session is established and valid.
      * @param token Session token for API calls.
      * @param expiresAt Expiration timestamp in milliseconds since epoch.
+     * @param deviceAddress The authenticated phone number (e.g., "+14155551234") used for iMessage threading.
+     * Nullable during early provisioning phases; non-null once activation completes.
      */
-    data class SessionEstablished(val token: String, val expiresAt: Long) : AuthState()
+    data class SessionEstablished(
+        val token: String,
+        val expiresAt: Long,
+        val deviceAddress: String? = null,
+    ) : AuthState()
 
     /**
      * Authentication failed. User can retry if retries remain.

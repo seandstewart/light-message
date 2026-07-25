@@ -29,13 +29,16 @@ import kotlinx.coroutines.flow.firstOrNull
  *
  * Spec: milestone-2.md § TASK_011 (Background Sync Worker); ADR-008 (WorkManager).
  *
- * TODO: A custom [androidx.work.WorkerFactory] must be registered with WorkManager to inject
- * [IRelayService] and [IMessageRepository]. Until then, [getRelayService] and
- * [getMessageRepository] return null and the worker fails fast (returns [WorkerResult.failure])
- * rather than retrying forever and burning battery.
+ * Dependencies are injected via [AppWorkerFactory] registered with WorkManager. If dependencies
+ * are null, the worker fails fast (returns [WorkerResult.failure]) rather than retrying forever
+ * and burning battery.
  */
-class BackgroundSyncWorker(context: Context, params: WorkerParameters) :
-        CoroutineWorker(context, params) {
+class BackgroundSyncWorker(
+    context: Context,
+    params: WorkerParameters,
+    private val relayService: IRelayService,
+    private val messageRepository: IMessageRepository,
+) : CoroutineWorker(context, params) {
     override suspend fun doWork(): WorkerResult {
         return try {
             performSync()
@@ -61,25 +64,10 @@ class BackgroundSyncWorker(context: Context, params: WorkerParameters) :
      * errors, WorkerResult.failure() for fatal errors
      */
     private suspend fun performSync(): WorkerResult {
-        // DI not yet wired: fail fast rather than retry forever and burn battery.
-        val relayService =
-                getRelayService()
-                        ?: run {
-                            Log.e(
-                                    TAG,
-                                    "RelayService DI not wired; failing sync permanently until WorkerFactory is registered",
-                            )
-                            return WorkerResult.failure()
-                        }
-        val messageRepository =
-                getMessageRepository()
-                        ?: run {
-                            Log.e(
-                                    TAG,
-                                    "MessageRepository DI not wired; failing sync permanently until WorkerFactory is registered",
-                            )
-                            return WorkerResult.failure()
-                        }
+        // All dependencies are guaranteed to be non-null via AppWorkerFactory.createWorker() injection.
+        // Assert to catch any factory misconfiguration during development.
+        require(relayService != null) { "RelayService must be injected by AppWorkerFactory" }
+        require(messageRepository != null) { "MessageRepository must be injected by AppWorkerFactory" }
 
         // 1. Check relay connection state and reconnect if needed
         if (relayService.connectionState.value !is RelayConnectionState.Connected) {
@@ -103,9 +91,9 @@ class BackgroundSyncWorker(context: Context, params: WorkerParameters) :
         val syncResult = relayService.requestSync()
         if (syncResult.isFailure) {
             Log.w(
-                    TAG,
-                    "Failed to request sync from relay, retrying later",
-                    syncResult.exceptionOrNull()
+                TAG,
+                "Failed to request sync from relay, retrying later",
+                syncResult.exceptionOrNull()
             )
             return WorkerResult.retry()
         }
@@ -125,13 +113,13 @@ class BackgroundSyncWorker(context: Context, params: WorkerParameters) :
      * WorkerResult.retry if transient error, WorkerResult.failure if fatal error
      */
     private suspend fun retryUndeliveredMessages(
-            relayService: IRelayService,
-            messageRepository: IMessageRepository,
+        relayService: IRelayService,
+        messageRepository: IMessageRepository,
     ): WorkerResult {
         return try {
             // firstOrNull() guards against a flow that never emits (safer than first()).
             val undeliveredMessages =
-                    messageRepository.getUndeliveredMessages().firstOrNull() ?: emptyList()
+                messageRepository.getUndeliveredMessages().firstOrNull() ?: emptyList()
             Log.i(TAG, "Found ${undeliveredMessages.size} undelivered messages")
 
             for (message in undeliveredMessages) {
@@ -143,35 +131,35 @@ class BackgroundSyncWorker(context: Context, params: WorkerParameters) :
 
                 try {
                     val outgoing =
-                            OutgoingMessage(
-                                    recipient = message.sender,
-                                    payload = envelope,
-                                    messageId = MessageId(message.id),
-                            )
+                        OutgoingMessage(
+                            recipient = message.sender,
+                            payload = envelope,
+                            messageId = MessageId(message.id),
+                        )
                     val sendResult = relayService.sendMessage(outgoing)
                     if (sendResult.isSuccess) {
                         // Mark message as delivered
                         val markResult =
-                                messageRepository.markAsDelivered(
-                                        message.id,
-                                        System.currentTimeMillis(),
-                                )
+                            messageRepository.markAsDelivered(
+                                message.id,
+                                System.currentTimeMillis(),
+                            )
                         if (markResult.isSuccess) {
                             Log.i(TAG, "Message ${message.id} resent and marked as delivered")
                         } else {
                             Log.w(
-                                    TAG,
-                                    "Message ${message.id} sent but failed to update status",
-                                    markResult.exceptionOrNull(),
+                                TAG,
+                                "Message ${message.id} sent but failed to update status",
+                                markResult.exceptionOrNull(),
                             )
                         }
                     } else {
                         // Log error but continue with next message (transient error on this
                         // specific message)
                         Log.w(
-                                TAG,
-                                "Failed to send message ${message.id}",
-                                sendResult.exceptionOrNull(),
+                            TAG,
+                            "Failed to send message ${message.id}",
+                            sendResult.exceptionOrNull(),
                         )
                     }
                 } catch (e: Exception) {
@@ -201,7 +189,7 @@ class BackgroundSyncWorker(context: Context, params: WorkerParameters) :
      * @param relayService Relay service whose connection state is queried
      * @return WorkerResult.success if connected, WorkerResult.retry otherwise
      */
-    private suspend fun attemptRelayConnection(relayService: IRelayService): WorkerResult {
+    private fun attemptRelayConnection(relayService: IRelayService): WorkerResult {
         return try {
             when (relayService.connectionState.value) {
                 is RelayConnectionState.Connected -> WorkerResult.success()
@@ -214,23 +202,6 @@ class BackgroundSyncWorker(context: Context, params: WorkerParameters) :
         }
     }
 
-    /**
-     * Get the relay service from the service container.
-     * @return RelayService or null if not available
-     */
-    private fun getRelayService(): IRelayService? {
-        // TODO: Inject via DI framework (Hilt, Koin) or fetch from service container
-        return null
-    }
-
-    /**
-     * Get the message repository from the service container.
-     * @return MessageRepository or null if not available
-     */
-    private fun getMessageRepository(): IMessageRepository? {
-        // TODO: Inject via DI framework (Hilt, Koin) or fetch from service container
-        return null
-    }
 
     /**
      * Classify a throwable as transient (retryable) vs permanent. Uses type checks rather than
@@ -238,16 +209,18 @@ class BackgroundSyncWorker(context: Context, params: WorkerParameters) :
      * classification.
      */
     private fun isTransient(e: Throwable): Boolean =
-            when (e) {
-                is java.net.SocketTimeoutException,
-                is java.net.UnknownHostException,
-                is java.io.IOException,
-                is java.util.concurrent.TimeoutException, -> true
-                else -> false
-            }
+        when (e) {
+            is java.net.SocketTimeoutException,
+            is java.net.UnknownHostException,
+            is java.io.IOException,
+            is java.util.concurrent.TimeoutException,
+                -> true
+
+            else -> false
+        }
 
     private fun errorData(e: Throwable): Data =
-            Data.Builder().putString(KEY_ERROR, e.message ?: e::class.java.simpleName).build()
+        Data.Builder().putString(KEY_ERROR, e.message ?: e::class.java.simpleName).build()
 
     companion object {
         private const val TAG = "BackgroundSyncWorker"
@@ -273,33 +246,33 @@ class BackgroundSyncWorker(context: Context, params: WorkerParameters) :
          */
         fun schedule(context: Context) {
             val syncRequest =
-                    PeriodicWorkRequestBuilder<BackgroundSyncWorker>(
-                                    SYNC_INTERVAL_MINUTES,
-                                    TimeUnit.MINUTES,
-                            )
-                            .apply {
-                                addTag("sync")
-                                setConstraints(
-                                        Constraints.Builder()
-                                                .setRequiredNetworkType(NetworkType.CONNECTED)
-                                                .setRequiresBatteryNotLow(true)
-                                                .setRequiresDeviceIdle(false)
-                                                .build(),
-                                )
-                                setBackoffCriteria(
-                                        androidx.work.BackoffPolicy.EXPONENTIAL,
-                                        BACKOFF_INITIAL_DELAY_MINUTES,
-                                        TimeUnit.MINUTES,
-                                )
-                            }
-                            .build()
+                PeriodicWorkRequestBuilder<BackgroundSyncWorker>(
+                    SYNC_INTERVAL_MINUTES,
+                    TimeUnit.MINUTES,
+                )
+                    .apply {
+                        addTag("sync")
+                        setConstraints(
+                            Constraints.Builder()
+                                .setRequiredNetworkType(NetworkType.CONNECTED)
+                                .setRequiresBatteryNotLow(true)
+                                .setRequiresDeviceIdle(false)
+                                .build(),
+                        )
+                        setBackoffCriteria(
+                            androidx.work.BackoffPolicy.EXPONENTIAL,
+                            BACKOFF_INITIAL_DELAY_MINUTES,
+                            TimeUnit.MINUTES,
+                        )
+                    }
+                    .build()
 
             WorkManager.getInstance(context)
-                    .enqueueUniquePeriodicWork(
-                            WORK_NAME,
-                            ExistingPeriodicWorkPolicy.UPDATE,
-                            syncRequest,
-                    )
+                .enqueueUniquePeriodicWork(
+                    WORK_NAME,
+                    ExistingPeriodicWorkPolicy.UPDATE,
+                    syncRequest,
+                )
         }
 
         /**

@@ -1,6 +1,8 @@
 package com.lightphone.imessage.domain.relay
 
 import android.util.Log
+import com.lightphone.imessage.data.repository.MessageRepository
+import com.lightphone.imessage.domain.relay.policy.PersistThenAckPolicy
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
@@ -55,10 +57,11 @@ interface MessageAckPolicy {
  * sent unconditionally with a warning log (ack-before-persist risk).
  */
 class RelayService(
-        private val okHttpClient: OkHttpClient,
-        private val messageCodec: IMessageCodec? = null,
-        private val scope: CoroutineScope,
-        private val ackPolicy: MessageAckPolicy? = null,
+    private val okHttpClient: OkHttpClient,
+    private val messageCodec: IMessageCodec? = null,
+    private val scope: CoroutineScope,
+    private val messageRepository: MessageRepository? = null,
+    private val ackPolicy: MessageAckPolicy? = null,
 ) : IRelayService {
     private companion object {
         private const val TAG = "RelayService"
@@ -72,14 +75,15 @@ class RelayService(
     }
 
     private val _connectionState =
-            MutableStateFlow<RelayConnectionState>(RelayConnectionState.Disconnected)
+        MutableStateFlow<RelayConnectionState>(RelayConnectionState.Disconnected)
     override val connectionState: StateFlow<RelayConnectionState>
         get() = _connectionState.asStateFlow()
 
-    @Volatile private var webSocket: WebSocket? = null
+    @Volatile
+    private var webSocket: WebSocket? = null
     private val commandQueue: ConcurrentLinkedQueue<RelayCommand> = ConcurrentLinkedQueue()
     private val reconnectPolicy: ReconnectPolicy =
-            ReconnectPolicy(maxAttempts = 5, baseDelayMs = 1000)
+        ReconnectPolicy(maxAttempts = 5, baseDelayMs = 1000)
 
     private val reconnectAttempt = AtomicInteger(0)
     private var keepaliveJob: Job? = null
@@ -89,9 +93,17 @@ class RelayService(
     private val reconnectMutex = Mutex()
     private var reconnectInFlight = false
 
-    @Volatile private var pendingPong: CompletableDeferred<Unit>? = null
+    @Volatile
+    private var pendingPong: CompletableDeferred<Unit>? = null
 
     private val json = Json { ignoreUnknownKeys = true }
+
+    // Determine the effective ack policy:
+    // 1. Use explicit ackPolicy if provided
+    // 2. Otherwise, create PersistThenAckPolicy if messageRepository is provided
+    // 3. Otherwise, fall back to null (will use ack-before-persist with warning)
+    private val effectiveAckPolicy: MessageAckPolicy? =
+        ackPolicy ?: messageRepository?.let { PersistThenAckPolicy(it) }
 
     override suspend fun connect(endpoint: RelayEndpoint): Result<Unit> {
         return try {
@@ -129,11 +141,11 @@ class RelayService(
     override suspend fun sendMessage(message: OutgoingMessage): Result<MessageId> {
         return try {
             val command =
-                    RelayCommand.SendMessage(
-                            messageId = message.messageId,
-                            recipientUri = message.recipient,
-                            envelope = message.payload,
-                    )
+                RelayCommand.SendMessage(
+                    messageId = message.messageId,
+                    recipientUri = message.recipient,
+                    envelope = message.payload,
+                )
             // Always attempt send; sendCommand reports NotConnected via Result so we can enqueue.
             val send = sendCommand(command)
             if (send.isFailure) {
@@ -174,43 +186,43 @@ class RelayService(
 
         try {
             val request =
-                    Request.Builder()
-                            .url(endpoint.url)
-                            .addHeader("Authorization", "Bearer ${endpoint.token}")
-                            .build()
+                Request.Builder()
+                    .url(endpoint.url)
+                    .addHeader("Authorization", "Bearer ${endpoint.token}")
+                    .build()
 
             val listener =
-                    object : WebSocketListener() {
-                        override fun onOpen(
-                                webSocket: WebSocket,
-                                response: okhttp3.Response,
-                        ) {
-                            this@RelayService.onWebSocketOpen(webSocket)
-                        }
-
-                        override fun onMessage(
-                                webSocket: WebSocket,
-                                bytes: ByteString,
-                        ) {
-                            this@RelayService.onWebSocketMessage(bytes)
-                        }
-
-                        override fun onFailure(
-                                webSocket: WebSocket,
-                                t: Throwable,
-                                response: okhttp3.Response?,
-                        ) {
-                            this@RelayService.onWebSocketFailure(t)
-                        }
-
-                        override fun onClosed(
-                                webSocket: WebSocket,
-                                code: Int,
-                                reason: String,
-                        ) {
-                            this@RelayService.onWebSocketClosed(code, reason)
-                        }
+                object : WebSocketListener() {
+                    override fun onOpen(
+                        webSocket: WebSocket,
+                        response: okhttp3.Response,
+                    ) {
+                        this@RelayService.onWebSocketOpen(webSocket)
                     }
+
+                    override fun onMessage(
+                        webSocket: WebSocket,
+                        bytes: ByteString,
+                    ) {
+                        this@RelayService.onWebSocketMessage(bytes)
+                    }
+
+                    override fun onFailure(
+                        webSocket: WebSocket,
+                        t: Throwable,
+                        response: okhttp3.Response?,
+                    ) {
+                        this@RelayService.onWebSocketFailure(t)
+                    }
+
+                    override fun onClosed(
+                        webSocket: WebSocket,
+                        code: Int,
+                        reason: String,
+                    ) {
+                        this@RelayService.onWebSocketClosed(code, reason)
+                    }
+                }
 
             okHttpClient.newWebSocket(request, listener)
         } catch (e: Exception) {
@@ -282,23 +294,23 @@ class RelayService(
                     val nextAttempt = current + 1
 
                     _connectionState.emit(
-                            RelayConnectionState.Reconnecting(
-                                    attempt = nextAttempt,
-                                    nextRetryIn = delayMs,
-                            ),
+                        RelayConnectionState.Reconnecting(
+                            attempt = nextAttempt,
+                            nextRetryIn = delayMs,
+                        ),
                     )
 
                     reconnectAttempt.set(nextAttempt)
                     reconnectJob?.cancel()
                     reconnectJob =
-                            scope.launch {
-                                delay(delayMs)
-                                performConnect()
-                            }
+                        scope.launch {
+                            delay(delayMs)
+                            performConnect()
+                        }
                 } else {
                     Log.w(
-                            TAG,
-                            "WebSocket failure (exhausted retries): " + redactAuth(t.message ?: ""),
+                        TAG,
+                        "WebSocket failure (exhausted retries): " + redactAuth(t.message ?: ""),
                     )
                     _connectionState.emit(RelayConnectionState.Failed("connection failed"))
                 }
@@ -308,8 +320,8 @@ class RelayService(
 
     /** Called when WebSocket connection closes. Emits Disconnected state and cleans up. */
     private fun onWebSocketClosed(
-            code: Int,
-            reason: String,
+        code: Int,
+        reason: String,
     ) {
         scope.launch {
             keepaliveJob?.cancel()
@@ -344,35 +356,39 @@ class RelayService(
 
     /** Serialize a RelayCommand to JSON string. */
     private fun serializeCommand(cmd: RelayCommand): String =
-            when (cmd) {
-                is RelayCommand.SendMessage -> {
-                    val dto =
-                            SendMessageDto(
-                                    command = "send_message",
-                                    message_id = cmd.messageId.value,
-                                    recipient = cmd.recipientUri,
-                                    envelope = cmd.envelope.joinToString("") { "%02x".format(it) },
-                            )
-                    json.encodeToString(SendMessageDto.serializer(), dto)
-                }
-                is RelayCommand.AckMessage -> {
-                    val dto =
-                            AckMessageDto(command = "ack_message", message_id = cmd.messageId.value)
-                    json.encodeToString(AckMessageDto.serializer(), dto)
-                }
-                is RelayCommand.RequestSync -> {
-                    val dto = RequestSyncDto(command = "request_sync")
-                    json.encodeToString(RequestSyncDto.serializer(), dto)
-                }
-                is RelayCommand.Ping -> {
-                    val dto = PingDto(command = "ping")
-                    json.encodeToString(PingDto.serializer(), dto)
-                }
-                is RelayCommand.Pong -> {
-                    val dto = PongDto(command = "pong")
-                    json.encodeToString(PongDto.serializer(), dto)
-                }
+        when (cmd) {
+            is RelayCommand.SendMessage -> {
+                val dto =
+                    SendMessageDto(
+                        command = "send_message",
+                        message_id = cmd.messageId.value,
+                        recipient = cmd.recipientUri,
+                        envelope = cmd.envelope.joinToString("") { "%02x".format(it) },
+                    )
+                json.encodeToString(SendMessageDto.serializer(), dto)
             }
+
+            is RelayCommand.AckMessage -> {
+                val dto =
+                    AckMessageDto(command = "ack_message", message_id = cmd.messageId.value)
+                json.encodeToString(AckMessageDto.serializer(), dto)
+            }
+
+            is RelayCommand.RequestSync -> {
+                val dto = RequestSyncDto(command = "request_sync")
+                json.encodeToString(RequestSyncDto.serializer(), dto)
+            }
+
+            is RelayCommand.Ping -> {
+                val dto = PingDto(command = "ping")
+                json.encodeToString(PingDto.serializer(), dto)
+            }
+
+            is RelayCommand.Pong -> {
+                val dto = PongDto(command = "pong")
+                json.encodeToString(PongDto.serializer(), dto)
+            }
+        }
 
     /**
      * Parse incoming WebSocket frame and return command. Format: 4-byte big-endian length prefix +
@@ -400,16 +416,18 @@ class RelayService(
             "send_message" -> {
                 val dto = json.decodeFromString(SendMessageDto.serializer(), jsonStr)
                 RelayCommand.SendMessage(
-                        messageId = MessageId(dto.message_id),
-                        recipientUri = dto.recipient,
-                        envelope =
-                                dto.envelope.chunked(2).map { it.toInt(16).toByte() }.toByteArray(),
+                    messageId = MessageId(dto.message_id),
+                    recipientUri = dto.recipient,
+                    envelope =
+                        dto.envelope.chunked(2).map { it.toInt(16).toByte() }.toByteArray(),
                 )
             }
+
             "ack_message" -> {
                 val dto = json.decodeFromString(AckMessageDto.serializer(), jsonStr)
                 RelayCommand.AckMessage(MessageId(dto.message_id))
             }
+
             "request_sync" -> RelayCommand.RequestSync
             else -> throw IllegalArgumentException("Unknown command: ${envelope.command}")
         }
@@ -429,47 +447,61 @@ class RelayService(
     private suspend fun handleIncomingCommand(cmd: RelayCommand) {
         when (cmd) {
             is RelayCommand.SendMessage -> {
-                val policy = ackPolicy
+                val policy = effectiveAckPolicy
                 if (policy == null) {
-                    // TODO: wire a MessageAckPolicy that persists the message before ACKing.
-                    // Sending the ACK now risks the relay dropping the message before it is
-                    // durably stored locally (ack-before-persist).
+                    // No MessageAckPolicy configured: fall back to ack-before-persist (risky).
+                    // F-2 mitigation: inject MessageRepository to enable PersistThenAckPolicy
                     Log.w(
-                            TAG,
-                            "No MessageAckPolicy configured; ACKing before persistence (risky).",
+                        TAG,
+                        "No MessageAckPolicy configured; ACKing before persistence (risky). " +
+                                "Inject MessageRepository to enable persist-then-ack.",
                     )
                     sendCommand(RelayCommand.AckMessage(cmd.messageId))
                 } else {
+                    // F-2: Persist-then-ack flow
+                    // 1. Call policy.onIncomingMessage() which persists to repository
+                    // 2. If persist succeeds, send ACK; if fails, skip ACK (let relay retry)
+                    Log.d(TAG, "Processing incoming message ${cmd.messageId.value} with persist-then-ack")
                     val shouldAck =
-                            try {
-                                policy.onIncomingMessage(cmd)
-                            } catch (e: CancellationException) {
-                                throw e
-                            } catch (e: Exception) {
-                                Log.e(
-                                        TAG,
-                                        "MessageAckPolicy failed: ${redactAuth(e.message ?: "")}",
-                                )
-                                false
-                            }
+                        try {
+                            policy.onIncomingMessage(cmd)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Log.e(
+                                TAG,
+                                "MessageAckPolicy failed: ${redactAuth(e.message ?: "")}",
+                            )
+                            false
+                        }
                     if (shouldAck) {
+                        Log.d(TAG, "Message ${cmd.messageId.value} persisted; sending ACK")
                         sendCommand(RelayCommand.AckMessage(cmd.messageId))
+                    } else {
+                        Log.w(
+                            TAG,
+                            "Message ${cmd.messageId.value} failed to persist; skipping ACK (relay will retry).",
+                        )
                     }
                 }
             }
+
             is RelayCommand.AckMessage -> {
                 // Relay acknowledged our message send
                 // TODO: Update message repository with status=SENT
             }
+
             is RelayCommand.Ping -> {
                 sendCommand(RelayCommand.Pong)
             }
+
             is RelayCommand.Pong -> {
                 // Keepalive pong received; complete the outstanding deferred so the timeout
                 // watcher exits cleanly.
                 pendingPong?.complete(Unit)
                 pendingPong = null
             }
+
             is RelayCommand.RequestSync -> {
                 // TODO: Trigger sync from relay
             }
@@ -483,48 +515,48 @@ class RelayService(
     private fun startKeepalive() {
         keepaliveJob?.cancel()
         keepaliveJob =
-                scope.launch {
-                    while (true) {
-                        delay(KEEPALIVE_INTERVAL_MS)
+            scope.launch {
+                while (true) {
+                    delay(KEEPALIVE_INTERVAL_MS)
 
-                        // Abort any previous outstanding pong watcher so only one is live at a
-                        // time.
-                        pendingPong?.cancel()
-                        val pong = CompletableDeferred<Unit>()
-                        pendingPong = pong
+                    // Abort any previous outstanding pong watcher so only one is live at a
+                    // time.
+                    pendingPong?.cancel()
+                    val pong = CompletableDeferred<Unit>()
+                    pendingPong = pong
 
-                        val sendResult =
-                                try {
-                                    sendCommand(RelayCommand.Ping)
-                                } catch (e: Exception) {
-                                    Log.e(
-                                            TAG,
-                                            "Failed to send keepalive ping: ${redactAuth(e.message ?: "")}",
-                                    )
-                                    pong.cancel()
-                                    break
-                                }
-
-                        if (sendResult.isFailure) {
+                    val sendResult =
+                        try {
+                            sendCommand(RelayCommand.Ping)
+                        } catch (e: Exception) {
+                            Log.e(
+                                TAG,
+                                "Failed to send keepalive ping: ${redactAuth(e.message ?: "")}",
+                            )
                             pong.cancel()
-                            onPongTimeout()
                             break
                         }
 
-                        scope.launch {
-                            val ok =
-                                    try {
-                                        withTimeoutOrNull(PONG_TIMEOUT_MS) { pong.await() }
-                                    } catch (e: CancellationException) {
-                                        // Replaced by a newer ping (or disconnect); nothing to do.
-                                        return@launch
-                                    }
-                            if (ok == null && pong === pendingPong) {
-                                onPongTimeout()
+                    if (sendResult.isFailure) {
+                        pong.cancel()
+                        onPongTimeout()
+                        break
+                    }
+
+                    scope.launch {
+                        val ok =
+                            try {
+                                withTimeoutOrNull(PONG_TIMEOUT_MS) { pong.await() }
+                            } catch (e: CancellationException) {
+                                // Replaced by a newer ping (or disconnect); nothing to do.
+                                return@launch
                             }
+                        if (ok == null && pong === pendingPong) {
+                            onPongTimeout()
                         }
                     }
                 }
+            }
     }
 
     /**
@@ -544,22 +576,27 @@ class RelayService(
 /** DTOs for JSON serialization (length-prefixed WebSocket frames). */
 @Serializable
 private data class SendMessageDto(
-        val command: String,
-        val message_id: String,
-        val recipient: String,
-        val envelope: String, // hex-encoded bytes
+    val command: String,
+    val message_id: String,
+    val recipient: String,
+    val envelope: String, // hex-encoded bytes
 )
 
-@Serializable private data class AckMessageDto(val command: String, val message_id: String)
+@Serializable
+private data class AckMessageDto(val command: String, val message_id: String)
 
-@Serializable private data class RequestSyncDto(val command: String)
+@Serializable
+private data class RequestSyncDto(val command: String)
 
-@Serializable private data class PingDto(val command: String)
+@Serializable
+private data class PingDto(val command: String)
 
-@Serializable private data class PongDto(val command: String)
+@Serializable
+private data class PongDto(val command: String)
 
 /** Minimal peek shape used for typed command dispatch. */
-@Serializable private data class CommandEnvelope(val command: String)
+@Serializable
+private data class CommandEnvelope(val command: String)
 
 /**
  * Placeholder interface for message codec. TODO: Link to actual implementation when MessageCodec is

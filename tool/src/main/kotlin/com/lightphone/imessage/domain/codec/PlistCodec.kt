@@ -22,7 +22,7 @@ import org.w3c.dom.Node
 class PlistCodec {
     private val dateFormatter = DateTimeFormatter.ISO_INSTANT.withZone(ZoneId.of("UTC"))
     private val BPLIST_MAGIC =
-            byteArrayOf(0x62, 0x70, 0x6c, 0x69, 0x73, 0x74, 0x30, 0x30) // "bplist00"
+        byteArrayOf(0x62, 0x70, 0x6c, 0x69, 0x73, 0x74, 0x30, 0x30) // "bplist00"
     private val XML_MAGIC_BYTES = "<?xml".toByteArray(Charsets.US_ASCII)
 
     companion object {
@@ -55,7 +55,7 @@ class PlistCodec {
      */
     private class BytesKey(val bytes: ByteArray) {
         override fun equals(other: Any?): Boolean =
-                this === other || (other is BytesKey && bytes.contentEquals(other.bytes))
+            this === other || (other is BytesKey && bytes.contentEquals(other.bytes))
 
         override fun hashCode(): Int = bytes.contentHashCode()
     }
@@ -103,7 +103,7 @@ class PlistCodec {
 
             // Check for XML format by comparing raw bytes (no UTF-8 decode of prefix).
             if (bytes.size >= XML_MAGIC_BYTES.size &&
-                            XML_MAGIC_BYTES.indices.all { bytes[it] == XML_MAGIC_BYTES[it] }
+                XML_MAGIC_BYTES.indices.all { bytes[it] == XML_MAGIC_BYTES[it] }
             ) {
                 return Result.success(parseXmlPlist(String(bytes, Charsets.UTF_8)))
             }
@@ -132,23 +132,29 @@ class PlistCodec {
     private inner class PendingArray(val refs: IntArray) : Pending() {
         override fun serialize(refSize: Int): ByteArray {
             val length = refs.size
-            val lengthBytes = encodeLength(length)
             val refBytes = ByteArray(length * refSize)
             for (i in 0 until length) {
                 writeRefBigEndian(refBytes, i * refSize, refs[i], refSize)
             }
-            val result = ByteArray(1 + lengthBytes.size + refBytes.size)
-            result[0] = ARRAY_TYPE.toByte()
-            System.arraycopy(lengthBytes, 0, result, 1, lengthBytes.size)
-            System.arraycopy(refBytes, 0, result, 1 + lengthBytes.size, refBytes.size)
-            return result
+            if (length < 14) {
+                val result = ByteArray(1 + refBytes.size)
+                result[0] = (0xa0 or length).toByte()
+                System.arraycopy(refBytes, 0, result, 1, refBytes.size)
+                return result
+            } else {
+                val lengthBytes = encodeLength(length)
+                val result = ByteArray(1 + lengthBytes.size + refBytes.size)
+                result[0] = 0xaf.toByte()
+                System.arraycopy(lengthBytes, 0, result, 1, lengthBytes.size)
+                System.arraycopy(refBytes, 0, result, 1 + lengthBytes.size, refBytes.size)
+                return result
+            }
         }
     }
 
     private inner class PendingDict(val keyRefs: IntArray, val valRefs: IntArray) : Pending() {
         override fun serialize(refSize: Int): ByteArray {
             val length = keyRefs.size
-            val lengthBytes = encodeLength(length)
             val refBytes = ByteArray(2 * length * refSize)
             for (i in 0 until length) {
                 writeRefBigEndian(refBytes, i * refSize, keyRefs[i], refSize)
@@ -156,11 +162,19 @@ class PlistCodec {
             for (i in 0 until length) {
                 writeRefBigEndian(refBytes, (length + i) * refSize, valRefs[i], refSize)
             }
-            val result = ByteArray(1 + lengthBytes.size + refBytes.size)
-            result[0] = DICT_TYPE.toByte()
-            System.arraycopy(lengthBytes, 0, result, 1, lengthBytes.size)
-            System.arraycopy(refBytes, 0, result, 1 + lengthBytes.size, refBytes.size)
-            return result
+            if (length < 14) {
+                val result = ByteArray(1 + refBytes.size)
+                result[0] = (0xd0 or length).toByte()
+                System.arraycopy(refBytes, 0, result, 1, refBytes.size)
+                return result
+            } else {
+                val lengthBytes = encodeLength(length)
+                val result = ByteArray(1 + lengthBytes.size + refBytes.size)
+                result[0] = 0xdf.toByte()
+                System.arraycopy(lengthBytes, 0, result, 1, lengthBytes.size)
+                System.arraycopy(refBytes, 0, result, 1 + lengthBytes.size, refBytes.size)
+                return result
+            }
         }
     }
 
@@ -174,15 +188,15 @@ class PlistCodec {
         // final objectRefSize (which depends on total object count).
         val objectTable = mutableListOf<Pending>()
         val objectMap = mutableMapOf<Any, Int>()
-        encodeObject(value, objectTable, objectMap)
+        val topObjectIndex = encodeObject(value, objectTable, objectMap)
 
         // Compute objectRefSize now that we know how many objects there are.
         val objectRefSize =
-                when {
-                    objectTable.size < 256 -> 1
-                    objectTable.size < 65536 -> 2
-                    else -> 4
-                }
+            when {
+                objectTable.size < 256 -> 1
+                objectTable.size < 65536 -> 2
+                else -> 4
+            }
 
         // Materialize each Pending using the chosen objectRefSize.
         val objectBytes = ArrayList<ByteArray>(objectTable.size)
@@ -206,12 +220,12 @@ class PlistCodec {
         // Compute offsetSize based on the largest offset value we need to encode.
         val maxOffset = maxOf(offsetTableOffset, offsetsForObjects.maxOrNull() ?: 0L)
         val offsetSize =
-                when {
-                    maxOffset <= 0xffL -> 1
-                    maxOffset <= 0xffffL -> 2
-                    maxOffset <= 0xffffffffL -> 4
-                    else -> 8
-                }
+            when {
+                maxOffset <= 0xffL -> 1
+                maxOffset <= 0xffffL -> 2
+                maxOffset <= 0xffffffffL -> 4
+                else -> 8
+            }
 
         val offsetTable = ByteArray(objectTable.size * offsetSize)
         for (i in offsetsForObjects.indices) {
@@ -234,7 +248,7 @@ class PlistCodec {
         trailerBuffer.put(offsetSize.toByte()) // offset int size
         trailerBuffer.put(objectRefSize.toByte()) // object ref size
         trailerBuffer.putInt(objectTable.size) // number of objects
-        trailerBuffer.putInt(0) // top object index
+        trailerBuffer.putInt(topObjectIndex) // top object index
         trailerBuffer.putLong(offsetTableOffset) // offset table offset
 
         output.write(trailerBuffer.array())
@@ -243,42 +257,43 @@ class PlistCodec {
     }
 
     private fun encodeObject(
-            value: PlistValue,
-            objectTable: MutableList<Pending>,
-            objectMap: MutableMap<Any, Int>,
+        value: PlistValue,
+        objectTable: MutableList<Pending>,
+        objectMap: MutableMap<Any, Int>,
     ): Int {
         // Deduplicate immutable scalar values. For PlistData use a content-equality wrapper so
         // distinct byte arrays with colliding hash codes do NOT dedupe as the same object.
         val cacheKey: Any =
-                when (value) {
-                    is PlistString -> "s_" + value.value
-                    is PlistData -> BytesKey(value.value)
-                    is PlistInteger -> "i_" + value.value
-                    is PlistFloat -> "f_" + value.value.toBits()
-                    is PlistBoolean -> "b_" + value.value
-                    is PlistDate -> "t_" + value.timestamp
-                    PlistNull -> "null"
-                    is PlistArray -> Any() // containers not deduped
-                    is PlistDict -> Any()
-                }
+            when (value) {
+                is PlistString -> "s_" + value.value
+                is PlistData -> BytesKey(value.value)
+                is PlistInteger -> "i_" + value.value
+                is PlistFloat -> "f_" + value.value.toBits()
+                is PlistBoolean -> "b_" + value.value
+                is PlistDate -> "t_" + value.timestamp
+                PlistNull -> "null"
+                is PlistArray -> Any() // containers not deduped
+                is PlistDict -> Any()
+            }
 
         objectMap[cacheKey]?.let {
             return it
         }
 
         val pending: Pending =
-                when (value) {
-                    PlistNull -> PendingRaw(byteArrayOf(0x00))
-                    is PlistBoolean ->
-                            PendingRaw(if (value.value) byteArrayOf(0x09) else byteArrayOf(0x08))
-                    is PlistInteger -> PendingRaw(encodeInteger(value.value))
-                    is PlistFloat -> PendingRaw(encodeFloat(value.value))
-                    is PlistString -> PendingRaw(encodeString(value.value))
-                    is PlistData -> PendingRaw(encodeData(value.value))
-                    is PlistDate -> PendingRaw(encodeDate(value.timestamp))
-                    is PlistArray -> encodeArray(value.items, objectTable, objectMap)
-                    is PlistDict -> encodeDict(value.items, objectTable, objectMap)
-                }
+            when (value) {
+                PlistNull -> PendingRaw(byteArrayOf(0x00))
+                is PlistBoolean ->
+                    PendingRaw(if (value.value) byteArrayOf(0x09) else byteArrayOf(0x08))
+
+                is PlistInteger -> PendingRaw(encodeInteger(value.value))
+                is PlistFloat -> PendingRaw(encodeFloat(value.value))
+                is PlistString -> PendingRaw(encodeString(value.value))
+                is PlistData -> PendingRaw(encodeData(value.value))
+                is PlistDate -> PendingRaw(encodeDate(value.timestamp))
+                is PlistArray -> encodeArray(value.items, objectTable, objectMap)
+                is PlistDict -> encodeDict(value.items, objectTable, objectMap)
+            }
 
         val index = objectTable.size
         objectTable.add(pending)
@@ -290,23 +305,25 @@ class PlistCodec {
         return when {
             value >= -128 && value <= 127 -> byteArrayOf(0x10, value.toByte())
             value >= -32768 && value <= 32767 ->
-                    ByteBuffer.allocate(3)
-                            .order(ByteOrder.BIG_ENDIAN)
-                            .put(0x11)
-                            .putShort(value.toShort())
-                            .array()
+                ByteBuffer.allocate(3)
+                    .order(ByteOrder.BIG_ENDIAN)
+                    .put(0x11)
+                    .putShort(value.toShort())
+                    .array()
+
             value >= -2147483648L && value <= 2147483647L ->
-                    ByteBuffer.allocate(5)
-                            .order(ByteOrder.BIG_ENDIAN)
-                            .put(0x12)
-                            .putInt(value.toInt())
-                            .array()
+                ByteBuffer.allocate(5)
+                    .order(ByteOrder.BIG_ENDIAN)
+                    .put(0x12)
+                    .putInt(value.toInt())
+                    .array()
+
             else ->
-                    ByteBuffer.allocate(9)
-                            .order(ByteOrder.BIG_ENDIAN)
-                            .put(0x13)
-                            .putLong(value)
-                            .array()
+                ByteBuffer.allocate(9)
+                    .order(ByteOrder.BIG_ENDIAN)
+                    .put(0x13)
+                    .putLong(value)
+                    .array()
         }
     }
 
@@ -317,37 +334,51 @@ class PlistCodec {
     private fun encodeString(value: String): ByteArray {
         val utf8Bytes = value.toByteArray(Charsets.UTF_8)
         val length = utf8Bytes.size
-        val lengthBytes = encodeLength(length)
-        val result = ByteArray(1 + lengthBytes.size + utf8Bytes.size)
-        result[0] = 0x50
-        System.arraycopy(lengthBytes, 0, result, 1, lengthBytes.size)
-        System.arraycopy(utf8Bytes, 0, result, 1 + lengthBytes.size, utf8Bytes.size)
-        return result
+        if (length < 14) {
+            val result = ByteArray(1 + utf8Bytes.size)
+            result[0] = (0x50 or length).toByte()
+            System.arraycopy(utf8Bytes, 0, result, 1, utf8Bytes.size)
+            return result
+        } else {
+            val lengthBytes = encodeLength(length)
+            val result = ByteArray(1 + lengthBytes.size + utf8Bytes.size)
+            result[0] = 0x5f.toByte()
+            System.arraycopy(lengthBytes, 0, result, 1, lengthBytes.size)
+            System.arraycopy(utf8Bytes, 0, result, 1 + lengthBytes.size, utf8Bytes.size)
+            return result
+        }
     }
 
     private fun encodeData(value: ByteArray): ByteArray {
         val length = value.size
-        val lengthBytes = encodeLength(length)
-        val result = ByteArray(1 + lengthBytes.size + value.size)
-        result[0] = 0x40
-        System.arraycopy(lengthBytes, 0, result, 1, lengthBytes.size)
-        System.arraycopy(value, 0, result, 1 + lengthBytes.size, value.size)
-        return result
+        if (length < 14) {
+            val result = ByteArray(1 + value.size)
+            result[0] = (0x40 or length).toByte()
+            System.arraycopy(value, 0, result, 1, value.size)
+            return result
+        } else {
+            val lengthBytes = encodeLength(length)
+            val result = ByteArray(1 + lengthBytes.size + value.size)
+            result[0] = 0x4f.toByte()
+            System.arraycopy(lengthBytes, 0, result, 1, lengthBytes.size)
+            System.arraycopy(value, 0, result, 1 + lengthBytes.size, value.size)
+            return result
+        }
     }
 
     private fun encodeDate(timestamp: Long): ByteArray {
         val seconds = timestamp.toDouble()
         return ByteBuffer.allocate(9)
-                .order(ByteOrder.BIG_ENDIAN)
-                .put(0x33)
-                .putDouble(seconds)
-                .array()
+            .order(ByteOrder.BIG_ENDIAN)
+            .put(0x33)
+            .putDouble(seconds)
+            .array()
     }
 
     private fun encodeArray(
-            items: List<PlistValue>,
-            objectTable: MutableList<Pending>,
-            objectMap: MutableMap<Any, Int>,
+        items: List<PlistValue>,
+        objectTable: MutableList<Pending>,
+        objectMap: MutableMap<Any, Int>,
     ): Pending {
         val indices = IntArray(items.size)
         for ((i, item) in items.withIndex()) {
@@ -357,9 +388,9 @@ class PlistCodec {
     }
 
     private fun encodeDict(
-            items: Map<String, PlistValue>,
-            objectTable: MutableList<Pending>,
-            objectMap: MutableMap<Any, Int>,
+        items: Map<String, PlistValue>,
+        objectTable: MutableList<Pending>,
+        objectMap: MutableMap<Any, Int>,
     ): Pending {
         val keys = items.keys.sorted()
         val keyRefs = IntArray(keys.size)
@@ -380,16 +411,16 @@ class PlistCodec {
             byteArrayOf(0xf0.toByte(), length.toByte())
         } else if (length <= 0xffff) {
             ByteBuffer.allocate(3)
-                    .order(ByteOrder.BIG_ENDIAN)
-                    .put(0xf1.toByte())
-                    .putShort(length.toShort())
-                    .array()
+                .order(ByteOrder.BIG_ENDIAN)
+                .put(0xf1.toByte())
+                .putShort(length.toShort())
+                .array()
         } else {
             ByteBuffer.allocate(5)
-                    .order(ByteOrder.BIG_ENDIAN)
-                    .put(0xf2.toByte())
-                    .putInt(length)
-                    .array()
+                .order(ByteOrder.BIG_ENDIAN)
+                .put(0xf2.toByte())
+                .putInt(length)
+                .array()
         }
     }
 
@@ -400,12 +431,14 @@ class PlistCodec {
                 out[pos] = ((ref ushr 8) and 0xff).toByte()
                 out[pos + 1] = (ref and 0xff).toByte()
             }
+
             4 -> {
                 out[pos] = ((ref ushr 24) and 0xff).toByte()
                 out[pos + 1] = ((ref ushr 16) and 0xff).toByte()
                 out[pos + 2] = ((ref ushr 8) and 0xff).toByte()
                 out[pos + 3] = (ref and 0xff).toByte()
             }
+
             else -> throw IOException("Invalid ref size: $size")
         }
     }
@@ -417,17 +450,20 @@ class PlistCodec {
                 out[pos] = ((offset ushr 8) and 0xff).toByte()
                 out[pos + 1] = (offset and 0xff).toByte()
             }
+
             4 -> {
                 out[pos] = ((offset ushr 24) and 0xff).toByte()
                 out[pos + 1] = ((offset ushr 16) and 0xff).toByte()
                 out[pos + 2] = ((offset ushr 8) and 0xff).toByte()
                 out[pos + 3] = (offset and 0xff).toByte()
             }
+
             8 -> {
                 for (b in 0 until 8) {
                     out[pos + b] = ((offset ushr ((7 - b) * 8)) and 0xff).toByte()
                 }
             }
+
             else -> throw IOException("Invalid offset size: $size")
         }
     }
@@ -489,11 +525,11 @@ class PlistCodec {
      * pathologically deep input via a hard `MAX_DEPTH` limit.
      */
     private fun readObjectAt(
-            bytes: ByteArray,
-            offsetTable: LongArray,
-            index: Int,
-            objectRefSize: Int,
-            depth: Int,
+        bytes: ByteArray,
+        offsetTable: LongArray,
+        index: Int,
+        objectRefSize: Int,
+        depth: Int,
     ): PlistValue {
         if (depth > MAX_DEPTH) {
             throw IllegalArgumentException("plist nested too deep (>$MAX_DEPTH)")
@@ -521,28 +557,31 @@ class PlistCodec {
             marker == 0x09 -> PlistBoolean(true)
             marker in 0x10..0x13 -> {
                 val value =
-                        when (info) {
-                            0x0 -> buffer.get().toLong()
-                            0x1 -> buffer.short.toLong()
-                            0x2 -> buffer.int.toLong()
-                            0x3 -> buffer.long
-                            else -> throw IOException("Invalid integer type")
-                        }
+                    when (info) {
+                        0x0 -> buffer.get().toLong()
+                        0x1 -> buffer.short.toLong()
+                        0x2 -> buffer.int.toLong()
+                        0x3 -> buffer.long
+                        else -> throw IOException("Invalid integer type")
+                    }
                 PlistInteger(value)
             }
+
             marker in 0x20..0x23 -> {
                 val value =
-                        when (info) {
-                            0x2 -> buffer.float.toDouble()
-                            0x3 -> buffer.double
-                            else -> throw IOException("Invalid float type")
-                        }
+                    when (info) {
+                        0x2 -> buffer.float.toDouble()
+                        0x3 -> buffer.double
+                        else -> throw IOException("Invalid float type")
+                    }
                 PlistFloat(value)
             }
+
             marker == 0x33 -> {
                 val timestamp = buffer.double.toLong()
                 PlistDate(timestamp)
             }
+
             marker in 0x40..0x4f -> {
                 val length = readLength(buffer, info)
                 require(length in 0..buffer.remaining()) {
@@ -552,6 +591,7 @@ class PlistCodec {
                 buffer.get(data)
                 PlistData(data)
             }
+
             marker in 0x50..0x5f -> {
                 val length = readLength(buffer, info)
                 require(length in 0..buffer.remaining()) {
@@ -565,6 +605,7 @@ class PlistCodec {
                 val str = String(data, Charsets.UTF_8)
                 PlistString(str)
             }
+
             marker in 0x60..0x6f -> {
                 val length = readLength(buffer, info)
                 require(length >= 0 && length <= Int.MAX_VALUE / 2) {
@@ -579,6 +620,7 @@ class PlistCodec {
                 val str = String(data, Charsets.UTF_16BE)
                 PlistString(str)
             }
+
             marker in 0xa0..0xaf -> {
                 val length = readLength(buffer, info)
                 require(length >= 0) { "array length negative: $length" }
@@ -595,6 +637,7 @@ class PlistCodec {
                 }
                 PlistArray(items)
             }
+
             marker in 0xd0..0xdf -> {
                 val length = readLength(buffer, info)
                 require(length >= 0) { "dict length negative: $length" }
@@ -612,25 +655,26 @@ class PlistCodec {
                 val dict = LinkedHashMap<String, PlistValue>(length)
                 for (i in 0 until length) {
                     val keyValue =
-                            readObjectAt(bytes, offsetTable, keyRefs[i], objectRefSize, depth + 1)
+                        readObjectAt(bytes, offsetTable, keyRefs[i], objectRefSize, depth + 1)
                     if (keyValue !is PlistString) {
                         throw IOException(
-                                "Dictionary key must be a string, got ${keyValue::class.simpleName}"
+                            "Dictionary key must be a string, got ${keyValue::class.simpleName}"
                         )
                     }
                     val valueValue =
-                            readObjectAt(bytes, offsetTable, valRefs[i], objectRefSize, depth + 1)
+                        readObjectAt(bytes, offsetTable, valRefs[i], objectRefSize, depth + 1)
                     dict[keyValue.value] = valueValue
                 }
                 PlistDict(dict)
             }
+
             else -> throw IOException("Unknown object marker: 0x${Integer.toHexString(marker)}")
         }
     }
 
     private fun readLength(
-            buffer: ByteBuffer,
-            info: Int,
+        buffer: ByteBuffer,
+        info: Int,
     ): Int {
         return if (info < 14) {
             info
@@ -638,11 +682,11 @@ class PlistCodec {
             buffer.get().toInt() and 0xff
         } else if (info == 15) {
             val marker = buffer.get().toInt() and 0xff
-            val lengthMarker = (marker and 0xf0) shr 4
-            when (lengthMarker) {
-                0x1 -> buffer.short.toInt() and 0xffff
-                0x2 -> buffer.int
-                else -> throw IOException("Invalid length marker")
+            when (marker) {
+                0xf0 -> buffer.get().toInt() and 0xff
+                0xf1 -> buffer.short.toInt() and 0xffff
+                0xf2 -> buffer.int
+                else -> throw IOException("Invalid length marker: 0x${marker.toString(16)}")
             }
         } else {
             info
@@ -650,8 +694,8 @@ class PlistCodec {
     }
 
     private fun readObjectRef(
-            buffer: ByteBuffer,
-            size: Int,
+        buffer: ByteBuffer,
+        size: Int,
     ): Int {
         return when (size) {
             1 -> buffer.get().toInt() and 0xff
@@ -661,19 +705,21 @@ class PlistCodec {
                 require(v in 0..Int.MAX_VALUE.toLong()) { "object ref out of range: $v" }
                 v.toInt()
             }
+
             8 -> {
                 val v = buffer.long
                 require(v in 0..Int.MAX_VALUE.toLong()) { "object ref out of range: $v" }
                 v.toInt()
             }
+
             else -> throw IOException("Invalid object ref size")
         }
     }
 
     private fun readOffset(
-            bytes: ByteArray,
-            offset: Int,
-            size: Int,
+        bytes: ByteArray,
+        offset: Int,
+        size: Int,
     ): Long {
         val buffer = ByteBuffer.wrap(bytes, offset, size).order(ByteOrder.BIG_ENDIAN)
         return when (size) {
@@ -700,9 +746,9 @@ class PlistCodec {
         trySetFeature(factory, "http://xml.org/sax/features/external-general-entities", false)
         trySetFeature(factory, "http://xml.org/sax/features/external-parameter-entities", false)
         trySetFeature(
-                factory,
-                "http://apache.org/xml/features/nonvalidating/load-external-dtd",
-                false,
+            factory,
+            "http://apache.org/xml/features/nonvalidating/load-external-dtd",
+            false,
         )
         factory.isXIncludeAware = false
         factory.isExpandEntityReferences = false
@@ -749,6 +795,7 @@ class PlistCodec {
                 val bytes = Base64.getDecoder().decode(base64)
                 PlistData(bytes)
             }
+
             "date" -> {
                 val dateStr = element.textContent.trim()
                 try {
@@ -760,6 +807,7 @@ class PlistCodec {
                     throw IOException("Invalid date format: $dateStr", e)
                 }
             }
+
             "array" -> {
                 val children = getElementChildren(element)
                 val items = mutableListOf<PlistValue>()
@@ -768,6 +816,7 @@ class PlistCodec {
                 }
                 PlistArray(items)
             }
+
             "dict" -> {
                 val children = getElementChildren(element)
                 val dict = mutableMapOf<String, PlistValue>()
@@ -786,6 +835,7 @@ class PlistCodec {
                 }
                 PlistDict(dict)
             }
+
             else -> throw IOException("Unknown XML element: ${element.tagName}")
         }
     }

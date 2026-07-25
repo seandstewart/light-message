@@ -33,4 +33,17 @@ class AuthManager(private val stateMachine: AuthStateMachine) : IAuthManager {
     override suspend fun logout(): Result<Unit> {
         return stateMachine.logout()
     }
+
+    /**
+     * Retrieves the device address (phone number) from the current auth state if available.
+     * @return The authenticated phone number (e.g., "+14155551234") or null if not yet provisioned.
+     */
+    fun getDeviceAddress(): String? {
+        val currentState = state.value
+        return if (currentState is AuthState.SessionEstablished) {
+            currentState.deviceAddress
+        } else {
+            null
+        }
+    }
 }

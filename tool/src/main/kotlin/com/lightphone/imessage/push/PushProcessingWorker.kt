@@ -8,6 +8,7 @@ import androidx.work.WorkerParameters
 import com.lightphone.imessage.data.database.ImessageDatabase
 import com.lightphone.imessage.data.entity.MessageEntity
 import com.lightphone.imessage.data.entity.ThreadEntity
+import com.lightphone.imessage.domain.auth.AuthManager
 import com.lightphone.imessage.domain.codec.IMessageCodec
 import java.io.IOException
 import java.security.PrivateKey
@@ -30,10 +31,13 @@ import java.util.concurrent.TimeoutException
  * Spec: milestone-2.md § 4.3 (Native Push Notification).
  */
 class PushProcessingWorker(
-        appContext: Context,
-        params: WorkerParameters,
-        private val database: ImessageDatabase = ImessageDatabase.getInstance(appContext),
-        private val messageCodec: IMessageCodec? = null,
+    appContext: Context,
+    params: WorkerParameters,
+    private val database: ImessageDatabase,
+    private val messageCodec: IMessageCodec,
+    private val senderCert: X509Certificate,
+    private val recipientKey: PrivateKey,
+    private val authManager: AuthManager? = null,
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
         // Bound WorkManager retries — otherwise transient failures cause retry storms.
@@ -56,69 +60,51 @@ class PushProcessingWorker(
                 return Result.success()
             }
 
-            // 2. Fail permanently if the crypto path isn't wired yet. All three inputs
-            //    (codec + sender cert + recipient private key) are gated on AuthManager, so
-            //    a null on any of them means the feature isn't ready and retrying can't help.
-            val codec =
-                    messageCodec
-                            ?: run {
-                                Log.e(
-                                        TAG,
-                                        "MessageCodec not wired; failing push $messageId permanently",
-                                )
-                                return Result.failure()
-                            }
-            val senderCert =
-                    loadSenderCert(sender)
-                            ?: run {
-                                Log.e(
-                                        TAG,
-                                        "Sender cert unavailable (AuthManager not wired); failing $messageId permanently",
-                                )
-                                return Result.failure()
-                            }
-            val recipientKey =
-                    loadRecipientKey()
-                            ?: run {
-                                Log.e(
-                                        TAG,
-                                        "Recipient key unavailable (AuthManager not wired); failing $messageId permanently",
-                                )
-                                return Result.failure()
-                            }
+            // 2. All crypto dependencies (codec + sender cert + recipient private key) are now
+            //    guaranteed to be non-null via AppWorkerFactory.createWorker() injection.
+            //    Assert to catch any factory misconfiguration during development.
+            require(messageCodec != null) { "MessageCodec must be injected by AppWorkerFactory" }
+            require(senderCert != null) { "Sender cert must be injected by AppWorkerFactory" }
+            require(recipientKey != null) { "Recipient key must be injected by AppWorkerFactory" }
+            val codec = messageCodec
 
             // 3. Decrypt envelope. decodeEnvelope now returns a MessagePayload directly — the
             //    body is a first-class field, so no JSON re-parse is needed.
             val payload =
-                    codec.decodeEnvelope(envelope, senderCert, recipientKey).getOrElse { e ->
-                        Log.e(TAG, "Failed to decode envelope for $messageId", e)
-                        return Result.failure()
-                    }
+                messageCodec.decodeEnvelope(envelope, senderCert, recipientKey).getOrElse { e ->
+                    Log.e(TAG, "Failed to decode envelope for $messageId", e)
+                    return Result.failure()
+                }
 
-            // 4. Derive threadId from sender only.
-            //    TODO(BLOCKED_ON=AuthManager): include the device address as a second participant
-            //    once AuthManager exposes it. Until then, single-participant threads keep
-            //    conversations from collapsing into a single bucket keyed by the placeholder "+".
-            Log.w(
+            // 4. Derive threadId from sender and device address (own phone number).
+            //    If the device address is not yet available from AuthManager (auth not complete),
+            //    fall back to sender-only derivation with a warning.
+            val deviceAddress = authManager?.getDeviceAddress()
+            val threadId = if (deviceAddress != null) {
+                Log.d(TAG, "Deriving threadId with both sender and device address")
+                deriveThreadId(sender, deviceAddress)
+            } else {
+                Log.w(
                     TAG,
-                    "deriveThreadId called with sender only; device address pending AuthManager wiring",
-            )
-            val threadId = deriveThreadId(sender)
+                    "Device address not available from AuthManager; deriving threadId from sender only",
+                )
+                deriveThreadId(sender)
+            }
 
             // 5. Build the persisted entity.
             val messageEntity =
-                    MessageEntity(
-                            id = messageId,
-                            threadId = threadId,
-                            sender = sender,
-                            body = payload.body,
-                            timestamp = timestamp,
-                            type = 0, // TEXT
-                            isOutgoing = false,
-                            status = STATUS_DELIVERED,
-                            attachmentCount = 0,
-                            rawEnvelope = envelope,
-                    )
+                MessageEntity(
+                    id = messageId,
+                    threadId = threadId,
+                    sender = sender,
+                    body = payload.body,
+                    timestamp = timestamp,
+                    type = 0, // TEXT
+                    isOutgoing = false,
+                    status = STATUS_DELIVERED,
+                    attachmentCount = 0,
+                    rawEnvelope = envelope,
+                )
 
             // 6. Persist the message and upsert the parent thread in a single transaction so a
             //    partial write can't leave the DB in a state where the message row references
@@ -128,14 +114,19 @@ class PushProcessingWorker(
                 if (threadDao.existsById(threadId)) {
                     threadDao.updateLastMessage(threadId, payload.body, timestamp)
                 } else {
+                    val participantUris = if (deviceAddress != null) {
+                        "$sender|$deviceAddress"
+                    } else {
+                        sender
+                    }
                     threadDao.insert(
-                            ThreadEntity(
-                                    id = threadId,
-                                    title = sender,
-                                    lastMessage = payload.body,
-                                    lastTimestamp = timestamp,
-                                    participantUris = sender,
-                            ),
+                        ThreadEntity(
+                            id = threadId,
+                            title = sender,
+                            lastMessage = payload.body,
+                            lastTimestamp = timestamp,
+                            participantUris = participantUris,
+                        ),
                     )
                 }
                 database.messageDao().insert(messageEntity)
@@ -149,16 +140,16 @@ class PushProcessingWorker(
             Result.success()
         } catch (e: IOException) {
             Log.w(
-                    TAG,
-                    "Transient error processing push $messageId: ${e.javaClass.simpleName}",
-                    e,
+                TAG,
+                "Transient error processing push $messageId: ${e.javaClass.simpleName}",
+                e,
             )
             if (runAttemptCount >= RETRY_LIMIT) Result.failure() else Result.retry()
         } catch (e: TimeoutException) {
             Log.w(
-                    TAG,
-                    "Transient error processing push $messageId: ${e.javaClass.simpleName}",
-                    e,
+                TAG,
+                "Transient error processing push $messageId: ${e.javaClass.simpleName}",
+                e,
             )
             if (runAttemptCount >= RETRY_LIMIT) Result.failure() else Result.retry()
         } catch (e: Exception) {
@@ -182,12 +173,6 @@ class PushProcessingWorker(
         return UUID.nameUUIDFromBytes(combined.toByteArray()).toString()
     }
 
-    /** TODO(BLOCKED_ON=AuthManager): resolve the verified X.509 cert for [sender]. */
-    @Suppress("UNUSED_PARAMETER")
-    private fun loadSenderCert(sender: String): X509Certificate? = null
-
-    /** TODO(BLOCKED_ON=AuthManager): return the device's RSA-2048 private key. */
-    private fun loadRecipientKey(): PrivateKey? = null
 
     /** Send ACK back to relay (placeholder for future implementation). */
     private fun sendAckToRelay(messageId: String) {

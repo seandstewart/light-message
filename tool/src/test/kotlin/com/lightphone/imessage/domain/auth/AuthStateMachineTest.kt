@@ -7,16 +7,21 @@ import com.lightphone.imessage.data.provisioning.IProvisioningClient
 import com.lightphone.imessage.data.relay.IRelayHttpClient
 import com.lightphone.imessage.data.relay.LoginResponse
 import com.lightphone.imessage.data.relay.SessionResponse
+import com.lightphone.imessage.domain.auth.UnauthorizedException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
+import org.mockito.ArgumentMatchers
+import org.mockito.Mockito
 import org.mockito.Mock
 import org.mockito.MockitoAnnotations
 import org.mockito.kotlin.any
+import org.mockito.kotlin.doAnswer
 import org.mockito.kotlin.whenever
 
 /**
@@ -25,11 +30,14 @@ import org.mockito.kotlin.whenever
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AuthStateMachineTest {
-    @Mock private lateinit var mockTokenRepository: ITokenRepository
+    @Mock
+    private lateinit var mockTokenRepository: ITokenRepository
 
-    @Mock private lateinit var mockRelayClient: IRelayHttpClient
+    @Mock
+    private lateinit var mockRelayClient: IRelayHttpClient
 
-    @Mock private lateinit var mockNativeClient: IProvisioningClient
+    @Mock
+    private lateinit var mockNativeClient: IProvisioningClient
 
     private val testScope = TestScope()
 
@@ -52,29 +60,30 @@ class AuthStateMachineTest {
 
     @Test
     fun testIdleToAwaitingCredentials() = runTest {
-        whenever(mockRelayClient.loginWithCredentials(any(), any()))
-                .thenReturn(
-                        Result.success(
-                                LoginResponse.SessionToken(
-                                        token = "token-123",
-                                        expiresAt = futureTimestamp(),
-                                ),
-                        ),
-                )
-        whenever(mockTokenRepository.saveAppleId(any())).thenReturn(Result.success(Unit))
-        whenever(mockTokenRepository.saveSessionToken(any(), any()))
-                .thenReturn(Result.success(Unit))
-        whenever(mockNativeClient.registerHardware(any(), any()))
-                .thenReturn(
-                        Result.success(
-                                HardwareInfo(
-                                        deviceId = "device-123",
-                                        certificateData = ByteArray(0),
-                                ),
-                        ),
-                )
-        whenever(mockNativeClient.pollActivationStatus(any()))
-                .thenReturn(Result.success(ActivationStatus.Activated))
+        val timestamp = futureTimestamp()
+        whenever(mockRelayClient.loginWithCredentials("test@icloud.com", "password123"))
+            .thenReturn(
+                Result.success(
+                    LoginResponse.SessionToken(
+                        token = "token-123",
+                        expiresAt = timestamp,
+                    ),
+                ),
+            )
+        whenever(mockTokenRepository.saveAppleId("test@icloud.com")).thenReturn(Result.success(Unit))
+        whenever(mockTokenRepository.saveSessionToken("token-123", timestamp))
+            .thenReturn(Result.success(Unit))
+        whenever(mockNativeClient.registerHardware("token-123", "test@icloud.com"))
+            .thenReturn(
+                Result.success(
+                    HardwareInfo(
+                        deviceId = "device-123",
+                        certificateData = ByteArray(0),
+                    ),
+                ),
+            )
+        whenever(mockNativeClient.pollActivationStatus("device-123", 30))
+            .thenReturn(Result.success(ActivationStatus.Activated))
         whenever(mockTokenRepository.saveHardwareInfo(any())).thenReturn(Result.success(Unit))
 
         val machine = createAuthStateMachine()
@@ -86,19 +95,19 @@ class AuthStateMachineTest {
 
         val state = machine.getState().value
         assertTrue(
-                "State must be SessionEstablished after successful login",
-                state is AuthState.SessionEstablished,
+            "State must be SessionEstablished after successful login",
+            state is AuthState.SessionEstablished,
         )
     }
 
     @Test
     fun testRequestLoginTransitionsToAwaitingCredentials() = runTest {
         whenever(mockRelayClient.loginWithCredentials(any(), any()))
-                .thenReturn(
-                        Result.success(
-                                LoginResponse.TwoFactorRequired(challenge = "challenge-123")
-                        ),
-                )
+            .thenReturn(
+                Result.success(
+                    LoginResponse.TwoFactorRequired(challenge = "challenge-123")
+                ),
+            )
 
         val machine = createAuthStateMachine()
 
@@ -107,8 +116,8 @@ class AuthStateMachineTest {
 
         val state = machine.getState().value
         assertTrue(
-                "After requestLogin, state should be AwaitingTwoFactorCode",
-                state is AuthState.AwaitingTwoFactorCode,
+            "After requestLogin, state should be AwaitingTwoFactorCode",
+            state is AuthState.AwaitingTwoFactorCode,
         )
     }
 
@@ -118,7 +127,7 @@ class AuthStateMachineTest {
     fun testCredentialsToTwoFA() = runTest {
         val challenge = "challenge-456"
         whenever(mockRelayClient.loginWithCredentials(any(), any()))
-                .thenReturn(Result.success(LoginResponse.TwoFactorRequired(challenge = challenge)))
+            .thenReturn(Result.success(LoginResponse.TwoFactorRequired(challenge = challenge)))
 
         val machine = createAuthStateMachine()
 
@@ -127,9 +136,9 @@ class AuthStateMachineTest {
         val state = machine.getState().value
         assertTrue("State must be AwaitingTwoFactorCode", state is AuthState.AwaitingTwoFactorCode)
         assertEquals(
-                "Challenge must be stored",
-                challenge,
-                (state as AuthState.AwaitingTwoFactorCode).challenge,
+            "Challenge must be stored",
+            challenge,
+            (state as AuthState.AwaitingTwoFactorCode).challenge,
         )
     }
 
@@ -137,33 +146,34 @@ class AuthStateMachineTest {
 
     @Test
     fun testTwoFASubmissionSuccess() = runTest {
-        whenever(mockRelayClient.loginWithCredentials(any(), any()))
-                .thenReturn(
-                        Result.success(
-                                LoginResponse.TwoFactorRequired(challenge = "challenge-123")
-                        ),
-                )
+        val timestamp = futureTimestamp()
+        whenever(mockRelayClient.loginWithCredentials("test@icloud.com", "password123"))
+            .thenReturn(
+                Result.success(
+                    LoginResponse.TwoFactorRequired(challenge = "challenge-123")
+                ),
+            )
         whenever(mockTokenRepository.getAppleId()).thenReturn(Result.success("test@icloud.com"))
-        whenever(mockRelayClient.submitTwoFactor(any(), any()))
-                .thenReturn(
-                        Result.success(
-                                SessionResponse(token = "token-456", expiresAt = futureTimestamp()),
-                        ),
-                )
-        whenever(mockTokenRepository.saveAppleId(any())).thenReturn(Result.success(Unit))
-        whenever(mockTokenRepository.saveSessionToken(any(), any()))
-                .thenReturn(Result.success(Unit))
-        whenever(mockNativeClient.registerHardware(any(), any()))
-                .thenReturn(
-                        Result.success(
-                                HardwareInfo(
-                                        deviceId = "device-123",
-                                        certificateData = ByteArray(0),
-                                ),
-                        ),
-                )
-        whenever(mockNativeClient.pollActivationStatus(any()))
-                .thenReturn(Result.success(ActivationStatus.Activated))
+        whenever(mockRelayClient.submitTwoFactor("challenge-123", "123456"))
+            .thenReturn(
+                Result.success(
+                    SessionResponse(token = "token-456", expiresAt = timestamp),
+                ),
+            )
+        whenever(mockTokenRepository.saveAppleId("test@icloud.com")).thenReturn(Result.success(Unit))
+        whenever(mockTokenRepository.saveSessionToken("token-456", timestamp))
+            .thenReturn(Result.success(Unit))
+        whenever(mockNativeClient.registerHardware("token-456", "test@icloud.com"))
+            .thenReturn(
+                Result.success(
+                    HardwareInfo(
+                        deviceId = "device-123",
+                        certificateData = ByteArray(0),
+                    ),
+                ),
+            )
+        whenever(mockNativeClient.pollActivationStatus("device-123", 30))
+            .thenReturn(Result.success(ActivationStatus.Activated))
         whenever(mockTokenRepository.saveHardwareInfo(any())).thenReturn(Result.success(Unit))
 
         val machine = createAuthStateMachine()
@@ -180,11 +190,11 @@ class AuthStateMachineTest {
     @Test
     fun testTwoFASubmissionInvalidCode() = runTest {
         whenever(mockRelayClient.loginWithCredentials(any(), any()))
-                .thenReturn(
-                        Result.success(
-                                LoginResponse.TwoFactorRequired(challenge = "challenge-123")
-                        ),
-                )
+            .thenReturn(
+                Result.success(
+                    LoginResponse.TwoFactorRequired(challenge = "challenge-123")
+                ),
+            )
 
         val machine = createAuthStateMachine()
 
@@ -197,11 +207,11 @@ class AuthStateMachineTest {
     @Test
     fun testTwoFASubmissionWrongLength() = runTest {
         whenever(mockRelayClient.loginWithCredentials(any(), any()))
-                .thenReturn(
-                        Result.success(
-                                LoginResponse.TwoFactorRequired(challenge = "challenge-123")
-                        ),
-                )
+            .thenReturn(
+                Result.success(
+                    LoginResponse.TwoFactorRequired(challenge = "challenge-123")
+                ),
+            )
 
         val machine = createAuthStateMachine()
 
@@ -217,11 +227,11 @@ class AuthStateMachineTest {
     @Test
     fun testTwoFASubmissionNonNumeric() = runTest {
         whenever(mockRelayClient.loginWithCredentials(any(), any()))
-                .thenReturn(
-                        Result.success(
-                                LoginResponse.TwoFactorRequired(challenge = "challenge-123")
-                        ),
-                )
+            .thenReturn(
+                Result.success(
+                    LoginResponse.TwoFactorRequired(challenge = "challenge-123")
+                ),
+            )
 
         val machine = createAuthStateMachine()
 
@@ -245,11 +255,11 @@ class AuthStateMachineTest {
     @Test
     fun testTwoFAResendSuccess() = runTest {
         whenever(mockRelayClient.loginWithCredentials(any(), any()))
-                .thenReturn(
-                        Result.success(
-                                LoginResponse.TwoFactorRequired(challenge = "challenge-123")
-                        ),
-                )
+            .thenReturn(
+                Result.success(
+                    LoginResponse.TwoFactorRequired(challenge = "challenge-123")
+                ),
+            )
         whenever(mockRelayClient.resendTwoFactor(any())).thenReturn(Result.success(Unit))
 
         val machine = createAuthStateMachine()
@@ -261,19 +271,19 @@ class AuthStateMachineTest {
 
         val state = machine.getState().value
         assertTrue(
-                "State must remain AwaitingTwoFactorCode",
-                state is AuthState.AwaitingTwoFactorCode,
+            "State must remain AwaitingTwoFactorCode",
+            state is AuthState.AwaitingTwoFactorCode,
         )
     }
 
     @Test
     fun testTwoFAResendMaxAttempts() = runTest {
         whenever(mockRelayClient.loginWithCredentials(any(), any()))
-                .thenReturn(
-                        Result.success(
-                                LoginResponse.TwoFactorRequired(challenge = "challenge-123")
-                        ),
-                )
+            .thenReturn(
+                Result.success(
+                    LoginResponse.TwoFactorRequired(challenge = "challenge-123")
+                ),
+            )
         whenever(mockRelayClient.resendTwoFactor(any())).thenReturn(Result.success(Unit))
 
         val machine = createAuthStateMachine()
@@ -304,33 +314,34 @@ class AuthStateMachineTest {
     @Test
     fun testRetryBackoffOnLoginFailure() = runTest {
         var attemptCount = 0
-        whenever(mockRelayClient.loginWithCredentials(any(), any())).thenAnswer {
+        val timestamp = futureTimestamp()
+        doAnswer { _ ->
             attemptCount++
             if (attemptCount < 3) {
-                Result.failure(Exception("Network error"))
+                Result.failure<LoginResponse>(Exception("Network error"))
             } else {
-                Result.success(
-                        LoginResponse.SessionToken(
-                                token = "token-789",
-                                expiresAt = futureTimestamp(),
-                        ),
+                Result.success<LoginResponse>(
+                    LoginResponse.SessionToken(
+                        token = "token-789",
+                        expiresAt = timestamp,
+                    ),
                 )
             }
-        }
-        whenever(mockTokenRepository.saveAppleId(any())).thenReturn(Result.success(Unit))
-        whenever(mockTokenRepository.saveSessionToken(any(), any()))
-                .thenReturn(Result.success(Unit))
-        whenever(mockNativeClient.registerHardware(any(), any()))
-                .thenReturn(
-                        Result.success(
-                                HardwareInfo(
-                                        deviceId = "device-123",
-                                        certificateData = ByteArray(0),
-                                ),
-                        ),
-                )
-        whenever(mockNativeClient.pollActivationStatus(any()))
-                .thenReturn(Result.success(ActivationStatus.Activated))
+        }.`when`(mockRelayClient).loginWithCredentials("test@icloud.com", "password123")
+        whenever(mockTokenRepository.saveAppleId("test@icloud.com")).thenReturn(Result.success(Unit))
+        whenever(mockTokenRepository.saveSessionToken("token-789", timestamp))
+            .thenReturn(Result.success(Unit))
+        whenever(mockNativeClient.registerHardware("token-789", "test@icloud.com"))
+            .thenReturn(
+                Result.success(
+                    HardwareInfo(
+                        deviceId = "device-123",
+                        certificateData = ByteArray(0),
+                    ),
+                ),
+            )
+        whenever(mockNativeClient.pollActivationStatus("device-123", 30))
+            .thenReturn(Result.success(ActivationStatus.Activated))
         whenever(mockTokenRepository.saveHardwareInfo(any())).thenReturn(Result.success(Unit))
 
         val machine = createAuthStateMachine()
@@ -344,7 +355,7 @@ class AuthStateMachineTest {
     @Test
     fun testLoginFailureAfterMaxRetries() = runTest {
         whenever(mockRelayClient.loginWithCredentials(any(), any()))
-                .thenReturn(Result.failure(Exception("Persistent network error")))
+            .thenReturn(Result.failure(Exception("Persistent network error")))
 
         val machine = createAuthStateMachine()
 
@@ -363,26 +374,26 @@ class AuthStateMachineTest {
         val token = "session-token-123"
         val expiresAt = futureTimestamp()
 
-        whenever(mockRelayClient.loginWithCredentials(any(), any()))
-                .thenReturn(
-                        Result.success(
-                                LoginResponse.SessionToken(token = token, expiresAt = expiresAt),
-                        ),
-                )
-        whenever(mockTokenRepository.saveAppleId(any())).thenReturn(Result.success(Unit))
-        whenever(mockTokenRepository.saveSessionToken(any(), any()))
-                .thenReturn(Result.success(Unit))
-        whenever(mockNativeClient.registerHardware(any(), any()))
-                .thenReturn(
-                        Result.success(
-                                HardwareInfo(
-                                        deviceId = "device-123",
-                                        certificateData = ByteArray(0),
-                                ),
-                        ),
-                )
-        whenever(mockNativeClient.pollActivationStatus(any()))
-                .thenReturn(Result.success(ActivationStatus.Activated))
+        whenever(mockRelayClient.loginWithCredentials("test@icloud.com", "password123"))
+            .thenReturn(
+                Result.success(
+                    LoginResponse.SessionToken(token = token, expiresAt = expiresAt),
+                ),
+            )
+        whenever(mockTokenRepository.saveAppleId("test@icloud.com")).thenReturn(Result.success(Unit))
+        whenever(mockTokenRepository.saveSessionToken(token, expiresAt))
+            .thenReturn(Result.success(Unit))
+        whenever(mockNativeClient.registerHardware(token, "test@icloud.com"))
+            .thenReturn(
+                Result.success(
+                    HardwareInfo(
+                        deviceId = "device-123",
+                        certificateData = ByteArray(0),
+                    ),
+                ),
+            )
+        whenever(mockNativeClient.pollActivationStatus("device-123", 30))
+            .thenReturn(Result.success(ActivationStatus.Activated))
         whenever(mockTokenRepository.saveHardwareInfo(any())).thenReturn(Result.success(Unit))
 
         val machine = createAuthStateMachine()
@@ -408,11 +419,11 @@ class AuthStateMachineTest {
 
         whenever(mockTokenRepository.getSessionToken()).thenReturn(Result.success(oldToken))
         whenever(mockRelayClient.refreshToken(oldToken))
-                .thenReturn(
-                        Result.success(SessionResponse(token = newToken, expiresAt = newExpiresAt)),
-                )
+            .thenReturn(
+                Result.success(SessionResponse(token = newToken, expiresAt = newExpiresAt)),
+            )
         whenever(mockTokenRepository.saveSessionToken(newToken, newExpiresAt))
-                .thenReturn(Result.success(Unit))
+            .thenReturn(Result.success(Unit))
 
         val machine = createAuthStateMachine()
 
@@ -422,8 +433,8 @@ class AuthStateMachineTest {
 
         val state = machine.getState().value
         assertTrue(
-                "State must be SessionEstablished after refresh",
-                state is AuthState.SessionEstablished,
+            "State must be SessionEstablished after refresh",
+            state is AuthState.SessionEstablished,
         )
 
         if (state is AuthState.SessionEstablished) {
@@ -434,7 +445,7 @@ class AuthStateMachineTest {
     @Test
     fun testTokenRefreshWithoutToken() = runTest {
         whenever(mockTokenRepository.getSessionToken())
-                .thenReturn(Result.failure(Exception("No token stored")))
+            .thenReturn(Result.failure(Exception("No token stored")))
 
         val machine = createAuthStateMachine()
 
@@ -446,8 +457,8 @@ class AuthStateMachineTest {
     @Test
     fun testTokenRefreshFailureTransitionsToAwaitingCredentials() = runTest {
         whenever(mockTokenRepository.getSessionToken()).thenReturn(Result.success("old-token"))
-        whenever(mockRelayClient.refreshToken(any()))
-                .thenReturn(Result.failure(Exception("Token expired")))
+        whenever(mockRelayClient.refreshToken("old-token"))
+            .thenThrow(UnauthorizedException("Token expired"))
 
         val machine = createAuthStateMachine()
 
@@ -455,8 +466,8 @@ class AuthStateMachineTest {
 
         val state = machine.getState().value
         assertTrue(
-                "Failed refresh must transition to AwaitingCredentials",
-                state is AuthState.AwaitingCredentials,
+            "Failed refresh must transition to AwaitingCredentials",
+            state is AuthState.AwaitingCredentials,
         )
     }
 
@@ -490,29 +501,30 @@ class AuthStateMachineTest {
 
     @Test
     fun testLogoutFromSessionEstablished() = runTest {
-        whenever(mockRelayClient.loginWithCredentials(any(), any()))
-                .thenReturn(
-                        Result.success(
-                                LoginResponse.SessionToken(
-                                        token = "token",
-                                        expiresAt = futureTimestamp(),
-                                ),
-                        ),
-                )
-        whenever(mockTokenRepository.saveAppleId(any())).thenReturn(Result.success(Unit))
-        whenever(mockTokenRepository.saveSessionToken(any(), any()))
-                .thenReturn(Result.success(Unit))
-        whenever(mockNativeClient.registerHardware(any(), any()))
-                .thenReturn(
-                        Result.success(
-                                HardwareInfo(
-                                        deviceId = "device-123",
-                                        certificateData = ByteArray(0),
-                                ),
-                        ),
-                )
-        whenever(mockNativeClient.pollActivationStatus(any()))
-                .thenReturn(Result.success(ActivationStatus.Activated))
+        val timestamp = futureTimestamp()
+        whenever(mockRelayClient.loginWithCredentials("test@icloud.com", "password123"))
+            .thenReturn(
+                Result.success(
+                    LoginResponse.SessionToken(
+                        token = "token",
+                        expiresAt = timestamp,
+                    ),
+                ),
+            )
+        whenever(mockTokenRepository.saveAppleId("test@icloud.com")).thenReturn(Result.success(Unit))
+        whenever(mockTokenRepository.saveSessionToken("token", timestamp))
+            .thenReturn(Result.success(Unit))
+        whenever(mockNativeClient.registerHardware("token", "test@icloud.com"))
+            .thenReturn(
+                Result.success(
+                    HardwareInfo(
+                        deviceId = "device-123",
+                        certificateData = ByteArray(0),
+                    ),
+                ),
+            )
+        whenever(mockNativeClient.pollActivationStatus("device-123", 30))
+            .thenReturn(Result.success(ActivationStatus.Activated))
         whenever(mockTokenRepository.saveHardwareInfo(any())).thenReturn(Result.success(Unit))
         whenever(mockTokenRepository.clearSessionToken()).thenReturn(Result.success(Unit))
 
@@ -530,7 +542,7 @@ class AuthStateMachineTest {
     @Test
     fun testLogoutFailure() = runTest {
         whenever(mockTokenRepository.clearSessionToken())
-                .thenReturn(Result.failure(Exception("Storage error")))
+            .thenReturn(Result.failure(Exception("Storage error")))
 
         val machine = createAuthStateMachine()
 
@@ -543,25 +555,32 @@ class AuthStateMachineTest {
 
     @Test
     fun testStateFlowUpdates() = runTest {
-        whenever(mockRelayClient.loginWithCredentials(any(), any()))
-                .thenReturn(
-                        Result.success(
-                                LoginResponse.TwoFactorRequired(challenge = "challenge-123")
-                        ),
-                )
+        whenever(
+            mockRelayClient.loginWithCredentials(
+                "test@icloud.com",
+                "password123"
+            )
+        )
+            .thenReturn(
+                Result.success(
+                    LoginResponse.TwoFactorRequired(challenge = "challenge-123")
+                ),
+            )
 
         val machine = createAuthStateMachine()
         val states = mutableListOf<AuthState>()
 
         val collectJob = this.launch { machine.getState().collect { state -> states.add(state) } }
+        delay(100) // Allow collection subscription to establish
 
         machine.requestLogin(AppleId("test@icloud.com"), "password123")
+        delay(100) // Allow login and state changes to complete
         collectJob.cancel()
 
         assertTrue("State flow must emit initial Idle state", states.contains(AuthState.Idle))
         assertTrue(
-                "State flow must emit AwaitingTwoFactorCode",
-                states.any { it is AuthState.AwaitingTwoFactorCode },
+            "State flow must emit AwaitingTwoFactorCode",
+            states.any { it is AuthState.AwaitingTwoFactorCode },
         )
     }
 
@@ -570,7 +589,7 @@ class AuthStateMachineTest {
     @Test
     fun testLoginWithInvalidEmailFormat() = runTest {
         whenever(mockRelayClient.loginWithCredentials(any(), any()))
-                .thenReturn(Result.failure(Exception("Invalid email format")))
+            .thenReturn(Result.failure(Exception("Invalid email format")))
 
         val machine = createAuthStateMachine()
 
@@ -582,7 +601,7 @@ class AuthStateMachineTest {
     @Test
     fun testLoginWithEmptyPassword() = runTest {
         whenever(mockRelayClient.loginWithCredentials(any(), any()))
-                .thenReturn(Result.failure(Exception("Password cannot be empty")))
+            .thenReturn(Result.failure(Exception("Password cannot be empty")))
 
         val machine = createAuthStateMachine()
 
@@ -595,29 +614,30 @@ class AuthStateMachineTest {
 
     @Test
     fun testHardwareProvisioningProgress() = runTest {
-        whenever(mockRelayClient.loginWithCredentials(any(), any()))
-                .thenReturn(
-                        Result.success(
-                                LoginResponse.SessionToken(
-                                        token = "token",
-                                        expiresAt = futureTimestamp(),
-                                ),
-                        ),
-                )
-        whenever(mockTokenRepository.saveAppleId(any())).thenReturn(Result.success(Unit))
-        whenever(mockTokenRepository.saveSessionToken(any(), any()))
-                .thenReturn(Result.success(Unit))
-        whenever(mockNativeClient.registerHardware(any(), any()))
-                .thenReturn(
-                        Result.success(
-                                HardwareInfo(
-                                        deviceId = "device-123",
-                                        certificateData = ByteArray(0),
-                                ),
-                        ),
-                )
-        whenever(mockNativeClient.pollActivationStatus(any()))
-                .thenReturn(Result.success(ActivationStatus.Activated))
+        val timestamp = futureTimestamp()
+        whenever(mockRelayClient.loginWithCredentials("test@icloud.com", "password123"))
+            .thenReturn(
+                Result.success(
+                    LoginResponse.SessionToken(
+                        token = "token",
+                        expiresAt = timestamp,
+                    ),
+                ),
+            )
+        whenever(mockTokenRepository.saveAppleId("test@icloud.com")).thenReturn(Result.success(Unit))
+        whenever(mockTokenRepository.saveSessionToken("token", timestamp))
+            .thenReturn(Result.success(Unit))
+        whenever(mockNativeClient.registerHardware("token", "test@icloud.com"))
+            .thenReturn(
+                Result.success(
+                    HardwareInfo(
+                        deviceId = "device-123",
+                        certificateData = ByteArray(0),
+                    ),
+                ),
+            )
+        whenever(mockNativeClient.pollActivationStatus("device-123", 30))
+            .thenReturn(Result.success(ActivationStatus.Activated))
         whenever(mockTokenRepository.saveHardwareInfo(any())).thenReturn(Result.success(Unit))
 
         val machine = createAuthStateMachine()
@@ -626,8 +646,8 @@ class AuthStateMachineTest {
 
         val finalState = machine.getState().value
         assertTrue(
-                "Final state must be SessionEstablished",
-                finalState is AuthState.SessionEstablished,
+            "Final state must be SessionEstablished",
+            finalState is AuthState.SessionEstablished,
         )
     }
 
@@ -635,10 +655,10 @@ class AuthStateMachineTest {
 
     private fun createAuthStateMachine(): AuthStateMachine {
         return AuthStateMachine(
-                tokenRepository = mockTokenRepository,
-                relayClient = mockRelayClient,
-                nativeClient = mockNativeClient,
-                scope = testScope,
+            tokenRepository = mockTokenRepository,
+            relayClient = mockRelayClient,
+            nativeClient = mockNativeClient,
+            scope = testScope,
         )
     }
 
