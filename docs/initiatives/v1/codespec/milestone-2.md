@@ -986,6 +986,92 @@ gantt
 | Version | Date       | Author                  | Change                                                                                                                                     |
 | ------- | ---------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | 1.0     | 2026-07-18 | Specification Architect | Initial Milestone 2 implementation-ready specification based on Path A Kotlin-native architecture and DDD artifacts from prior milestones. |
+| 1.1     | 2026-07-25 | Code Review Sweep       | Split-brain resolution + review-driven fix pass on `feat/milestone-2-core-services` (15 commits, +4328/-4403 across 58 files).             |
+
+---
+
+## 11. Status — 2026-07-25 (branch `feat/milestone-2-core-services`)
+
+### Build
+
+- `gradle :tool:compileDebugKotlin` ✅
+- `gradle :tool:compileDebugUnitTestKotlin` ✅
+- `gradle :tool:compileDebugAndroidTestKotlin` ✅
+- `gradle :tool:testDebugUnitTest` ⚠️ 82 / 126 pass, 44 fail (runtime; see F-3)
+- Instrumented tests not executed this pass (`connectedDebugAndroidTest` requires device/emulator).
+
+### Sourceset layout
+
+- Single canonical root per variant: `src/{main,test,androidTest}/kotlin/`.
+- Legacy `java/` folders removed; no dual-tree ambiguity.
+
+### Delivered against §8 tasks
+
+| Task     | Status  | Notes                                                                                                                                                                                                                                        |
+| -------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TASK_001 | ✅ done | Room v1, 5 entities (`MessageEntity`, `ThreadEntity`, `ContactEntity`, `AttachmentEntity`, `DomainEventEntity`), `data.entity/` + `data.dao/` + `data.database/`, `exportSchema=false` (see F-6).                                            |
+| TASK_002 | ✅ done | `EncryptedTokenRepository` migrated from hand-rolled AES-GCM-over-Preferences to `androidx.security.crypto.EncryptedSharedPreferences` w/ AndroidKeyStore master key. `token.proto` deleted (never wired). See F-7 for rotation/StrongBox.   |
+| TASK_003 | ✅ done | `PlistCodec` binary + XML; XXE hardened; DoS bounds; dynamic ref/offset sizes; depth cap; `BytesKey` dedup.                                                                                                                                  |
+| TASK_004 | ✅ done | `CryptoEngine` AES-256-GCM + RSA-2048-OAEP-SHA256 (explicit MGF1-SHA256) + ECDSA-P256; `Result<AesGcmResult>` symmetric API; `AEADBadTagException` preserved; provider-pinning scaffold present but unused (F-2).                            |
+| TASK_005 | ✅ done | `AuthStateMachine`: state SM bugs fixed (ProvisioningHardware transitions, 2FA retry/resend atomicity, transient-vs-auth failure classification, `sanitize()` error hygiene). New `AuthState.Authenticating`. Impls of downstream: see F-1.  |
+| TASK_006 | ✅ done | `RelayService` (WebSocket): `reconnectJob` assigned + cancellable; per-ping `CompletableDeferred` timeout; single-flight reconnect mutex; `@Volatile webSocket`; jittered backoff; typed `CommandEnvelope` dispatch; `redactAuth()` on logs. |
+| TASK_007 | ✅ done | `MessageCodec` (Kotlin): envelope v1 with `canonicalSignedBytes(v ‖ len‖wk ‖ len‖iv ‖ len‖ct ‖ len‖tag)`; verify-before-decrypt; v==1 whitelist; attachment field enforcement.                                                               |
+| TASK_008 | ✅ done | `NativeServiceClient`: `future.await()` (non-blocking); split write/read mutex; loop-read frame header + `EOFException` on short read; per-ping `CompletableDeferred`; startup-race fix via `readLoopReady`.                                 |
+| TASK_009 | ✅ done | `PushReceiver` + `PushProcessingWorker`: `ExistingWorkPolicy.KEEP`; expedited; existence-only dedup; `withTransaction`; typed retry/failure. Placeholder deviceAddress remains (F-4).                                                        |
+| TASK_010 | ✅ done | Repos redundant `withContext(IO)` dropped; `transaction(block)` helper on concrete `MessageRepository`; `insert`/`upsert` contacts documented.                                                                                               |
+| TASK_011 | ✅ done | `BackgroundSyncWorker`: fail-fast on missing DI (F-1); typed transient classifier; `WorkerResult` alias; `Log.*` throughout; `firstOrNull()`; `ExistingPeriodicWorkPolicy.UPDATE`.                                                           |
+| TASK_012 | ⚠️ part | Unit tests compile; 44/126 fail at runtime (F-3). Instrumented tests compile; not executed on device.                                                                                                                                        |
+| TASK_013 | ⚠️ part | Repository + push receiver integration tests compile against real Room. Not executed on device.                                                                                                                                              |
+| TASK_014 | ⚠️ part | Milestone-2 spec updated (this section). ADR review not yet cross-checked.                                                                                                                                                                   |
+
+### Follow-ups
+
+| ID   | Priority | Scope                                                                                                                                                                                                                                                                                                                                            | Blocks       |
+| ---- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------ |
+| F-1  | 🔴 high  | Wire production implementations for `data.provisioning.IProvisioningClient` and `data.relay.IRelayHttpClient`. Currently interface-only + test mocks; `AuthStateMachine` cannot reach a live server; `BackgroundSyncWorker` fails fast on the null DI. Also register a `WorkerFactory` (Hilt / manual) so workers stop needing null-check gates. | M4 auth flow |
+| F-2  | 🔴 high  | Wire `MessageAckPolicy` in `RelayService` to persist-then-ack via `MessageRepository`. Today the fallback logs a warning and eagerly acks — real risk of message loss on crash between ack and persist.                                                                                                                                          | M5 messaging |
+| F-3  | 🟡 med   | 44 unit-test failures reflect old spec expectations (envelope canonical form pre-`iv+v` inclusion, `AwaitingCredentials` vs new `Authenticating`, verbatim error strings vs sanitized). Rewrite each test against current behavior; do not regress prod to satisfy tests.                                                                        | CI green     |
+| F-4  | 🟡 med   | `PushProcessingWorker.deviceAddress` is a `"+"` placeholder; thread derivation currently uses sender only. Wire real handle from `AuthManager` once F-1 lands.                                                                                                                                                                                   | F-1          |
+| F-5  | 🟡 med   | Register a `WorkerFactory` with WorkManager (or migrate to `HiltWorker`) so `PushProcessingWorker` + `BackgroundSyncWorker` can receive `messageCodec`, `senderCert`, `recipientKey`, `RelayService`, `MessageRepository` via DI. Until then both workers fail fast on cold start.                                                               | F-1          |
+| F-6  | 🟡 med   | Turn on Room schema export: set `exportSchema=true` in `ImessageDatabase`, wire `room.schemaLocation` KSP arg in `tool/build.gradle.kts`, commit generated JSON under `tool/schemas/`. Prereq to any migration.                                                                                                                                  | migrations   |
+| F-7  | 🟡 med   | Master-key rotation + StrongBox: `EncryptedSharedPreferences` uses the library default; explicit `setIsStrongBoxBacked(true)` + a `rotateMasterKey()` path (re-encrypt every record) are not implemented. Also add `setUserAuthenticationRequired` gating if biometric-bound tokens are desired.                                                 | prod release |
+| F-8  | 🟡 med   | Provider pinning in `CryptoEngine`: `cipher()`/`signature()` helpers exist and route through `CRYPTO_PROVIDER` companion, but value is `null`. Pin to Conscrypt on Android + SunJCE on JVM tests to remove the last MGF1-drift risk across providers.                                                                                            | prod release |
+| F-9  | 🔵 low   | Instrumented tests (`androidTest/`) not executed this pass — no emulator available. Run on device once F-1 + F-5 land.                                                                                                                                                                                                                           | CI hardware  |
+| F-10 | 🔵 low   | `docs/initiatives/v1/codespec/milestone-2.md § 3` still references the pre-rename interface names (`IRelayClient`, `INativeServiceClient` for the HTTP paths). Update to `IRelayHttpClient` / `IProvisioningClient`.                                                                                                                             | doc hygiene  |
+| F-11 | 🔵 low   | Credential scrubbing: `password: String` in `Auth.startAuthentication`. Convert to `CharArray` end-to-end + zero after use if threat model warrants.                                                                                                                                                                                             | threat model |
+| F-12 | 🔵 low   | Optional: migrate `androidTest/` to Robolectric so all tests run on JVM. Non-blocking; keeps current split for now.                                                                                                                                                                                                                              | dev velocity |
+
+### Commit log on branch (15)
+
+```
+fb935c7  refactor(tree): consolidate test + androidTest sourcesets under kotlin
+5e0267e  refactor(tree): consolidate main sourceset under src/main/kotlin
+9893fd4  fix(tests): update tests to match current APIs; drop sun.* + collision helpers
+503852f  chore(build): add test dependencies (mockito, coroutines-test, mockwebserver, bcpkix, androidx.test)
+41169d8  refactor(auth): disambiguate data.provisioning vs domain.native interface names
+c8e9c13  fix(sync): fail fast on missing DI, type-based transient classification, repo cleanup
+254c2b6  fix(push): existence-only dedup, bounded retries, expedited delivery, transaction
+498cb78  fix(auth): state-machine transitions + 2FA retry/resend atomicity + sanitize errors
+b938296  fix(native): unblock IPC via future.await; split read/write mutex; per-ping deferred
+a1a109d  fix(relay): reconnect + ping-timeout + races + token log redaction + jitter
+e5798f4  refactor(datastore): migrate token store to EncryptedSharedPreferences
+4e68abe  fix(crypto): explicit RSA-OAEP MGF1-SHA256; Result-wrap encrypt; preserve AEADBadTagException
+8ff7e18  refactor(codec): port to Kotlin + fix plist decoder, XXE, DoS bounds
+edd26e9  chore(build): add security-crypto + coroutines-jdk8; restore kotlinter
+dbe4d0a  refactor(data): consolidate split-brain data package under kotlin tree
+```
+
+### Exit gate for M2 → M3
+
+- ✅ Build clean (main + test + androidTest compile).
+- ⚠️ Unit tests green — **blocked on F-3**.
+- ⚠️ Instrumented tests green — **blocked on F-9** (emulator).
+- ⚠️ Provisioning + relay HTTP client impls — **blocked on F-1**.
+- ⚠️ Worker DI — **blocked on F-5**.
+
+Recommend gating M3 entry on **F-1, F-3, F-5** at minimum; F-2 before any real message roundtrip test.
+
+---
 
 **References**
 
