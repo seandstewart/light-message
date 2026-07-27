@@ -7,6 +7,13 @@
 #   3. mise run submodule    # init rustpush git submodule
 #   4. mise run setup        # install SDK components + Rust target + cargo-ndk
 #   5. mise run local-properties  # generate local.properties for GitHub Packages
+#   6. mise run dev:setup    # install pre-commit hooks + run initial checks
+#
+# Quick reference:
+#   mise run lint            # run linting checks (ktlint)
+#   mise run format          # auto-fix formatting
+#   mise run test            # run unit tests
+#   mise run build           # full build (Rust + Android)
 
 # ── Tools ─────────────────────────────────────────────────────────────────────
 [tools]
@@ -185,4 +192,77 @@ run = """
 set -euo pipefail
 cd rustpush && cargo clean
 cd .. && gradle clean
+"""
+
+# ── Local Development Setup ────────────────────────────────────────────────────
+
+# Install git pre-commit hooks for automatic linting on commit
+[tasks."dev:hooks"]
+description = "Install git pre-commit hooks (requires Python + pip)"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+if ! command -v pre-commit &> /dev/null; then
+  echo "==> Installing pre-commit..."
+  pip install pre-commit
+fi
+echo "==> Installing git hooks..."
+pre-commit install
+echo ""
+echo "✓ Pre-commit hooks installed. Linting will run automatically on git commit."
+"""
+
+# Run all linting checks (ktlint)
+[tasks.lint]
+description = "Run Kotlin linting checks (ktlint)"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+echo "==> Running Kotlin linting checks..."
+gradle :tool:lintKotlin
+echo ""
+echo "✓ Linting complete."
+"""
+
+# Auto-fix Kotlin formatting issues
+[tasks.format]
+description = "Auto-fix Kotlin formatting issues"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+echo "==> Auto-fixing Kotlin formatting..."
+gradle :tool:formatKotlin
+echo ""
+echo "✓ Formatting complete. Review changes with 'git diff'."
+"""
+
+# Complete local dev setup
+[tasks."dev:setup"]
+description = "Complete local dev setup: install hooks + run initial checks"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+echo "==> Setting up local development environment..."
+echo ""
+
+echo "→ Installing pre-commit hooks..."
+if ! command -v pre-commit &> /dev/null; then
+  pip install pre-commit
+fi
+pre-commit install
+echo ""
+
+echo "→ Running initial linting checks..."
+gradle :tool:lintKotlin
+echo ""
+
+echo "✓ Local dev environment ready!"
+echo ""
+echo "Available tasks:"
+echo "  mise run lint       — Run all linting checks"
+echo "  mise run format     — Auto-fix formatting issues"
+echo "  mise run test       — Run unit tests"
+echo "  mise run build      — Full build (Rust + Android)"
+echo ""
+echo "Git hooks will automatically lint on commit."
 """

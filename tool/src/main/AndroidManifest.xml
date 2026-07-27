@@ -17,6 +17,7 @@
     <uses-permission android:name="android.permission.BIND_JOB_SERVICE" />
 
     <application
+        android:name=".ImeApplication"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -43,7 +44,9 @@
             android:exported="true"
             android:permission="org.unifiedpush.android.distributor.SEND_PUSH">
             <intent-filter>
+                <!-- Message delivery from rustpush -->
                 <action android:name="org.unifiedpush.android.distributor.RECEIVE_PUSH" />
+                <!-- Registration result acknowledgment -->
                 <action android:name="org.unifiedpush.android.distributor.REGISTRATION_RESULT" />
             </intent-filter>
         </receiver>

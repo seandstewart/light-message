@@ -1,0 +1,73 @@
+repos:
+  # ── Kotlin/Android Linting with ktlint ──────────────────────────────────────
+  # Runs gradle ktlintFormat to auto-fix Kotlin style violations
+  - repo: local
+    hooks:
+      - id: kotlinFormatter
+        name: kotlinFormatter
+        entry: gradle :tool:formatKotlin
+        language: system
+        types: [kotlin]
+        pass_filenames: false
+        stages: [commit]
+
+  # ── General code quality hooks ────────────────────────────────────────────────
+
+  # Trim trailing whitespace
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        name: Trim trailing whitespace
+        types: [text]
+        stages: [commit]
+
+  # Ensure files end with newline
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: end-of-file-fixer
+        name: Fix end of file
+        types: [text]
+        stages: [commit]
+
+  # Check YAML syntax
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: check-yaml
+        name: Check YAML syntax
+        args: ['--unsafe']
+        stages: [commit]
+
+  # Check JSON syntax
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: check-json
+        name: Check JSON syntax
+        stages: [commit]
+
+  # Check for merge conflicts
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: check-merge-conflict
+        name: Check for merge conflicts
+        stages: [commit]
+
+  # Detect private keys
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: detect-private-key
+        name: Detect private keys
+        stages: [commit]
+
+  # ── Gradle file checks ──────────────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: check-case-conflict
+        name: Check for case conflicts in filenames
+        stages: [commit]
