@@ -2,7 +2,7 @@
 
 **Status:** In Progress
 
-**Current Milestone**: M1 (Contracts)
+**Current Milestone**: M3 (APNS<->UnifiedPush Bridge)
 
 **Active ADR:** n/a
 

@@ -65,9 +65,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-io-core:0.5.1")
     implementation("org.unifiedpush.android:connector:3.0.10")
     implementation("androidx.core:core-splashscreen:1.0.1")
-    implementation("com.thelightphone:sdk-server:0.0.12")
-    implementation("com.thelightphone:sdk-shared:0.0.12")
-    implementation("com.thelightphone:sdk-ui:0.0.12")
+    implementation("com.thelightphone:sdk-server:0.1.1")
+    implementation("com.thelightphone:sdk-shared:0.1.1")
+    implementation("com.thelightphone:sdk-ui:0.1.1")
     implementation("com.thelightphone.lp3keyboard:ui:0.0.16")
 
     implementation("androidx.room:room-runtime:2.7.2")
